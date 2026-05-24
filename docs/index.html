@@ -161,8 +161,6 @@
 </div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<script src="https://unpkg.com/pbf@3.3.0/dist/pbf.js"></script>
-<script src="https://unpkg.com/@mapbox/vector-tile@1.3.1/dist/vector-tile.js"></script>
 <script>
 const STAC_API = 'https://poc-stac-tokyo-taito.yuiseki.com/stac';
 const TILE_API = 'https://poc-stac-tokyo-taito.yuiseki.com';
@@ -182,6 +180,30 @@ let activeDatasets = new Set();
 let megurinActive = false;
 let megurinTimer = null;
 let simMode = 'realtime';
+
+// Current simulation time (seconds from midnight) — read by the protocol handler
+let stateTileSecs = 0;
+
+// Register custom protocol: stateTile://z/x/y
+// The handler fetches the real MVT endpoint with the current stateTileSecs value
+// and returns a short TTL so MapLibre auto-revalidates using stale-while-revalidate,
+// avoiding setTiles() which would disrupt the render loop.
+maplibregl.addProtocol('stateTile', async (params, abortController) => {
+  const [, path] = params.url.split('://');
+  const [z, x, y] = path.split('/').map(Number);
+  try {
+    const resp = await fetch(
+      `${TILE_API}/state/${z}/${x}/${y}?seconds=${stateTileSecs}`,
+      { signal: abortController.signal }
+    );
+    if (!resp.ok) return { data: new ArrayBuffer(0) };
+    const data = await resp.arrayBuffer();
+    // Short TTL: MapLibre keeps old tile visible while re-fetching the next state
+    return { data, expires: new Date(Date.now() + 1500) };
+  } catch {
+    return { data: new ArrayBuffer(0) };
+  }
+});
 
 // --- Map init ---
 function initMap() {
@@ -385,60 +407,19 @@ function makeMegurinIcon() {
   map.addImage('megurin-sq', ctx.getImageData(0, 0, size, size), { sdf: true });
 }
 
-// Calculate tiles covering the current viewport at a given zoom level
-function getViewportTiles(zoom) {
-  function lon2tile(lon, z) {
-    return Math.floor((lon + 180) / 360 * (1 << z));
-  }
-  function lat2tile(lat, z) {
-    const rad = lat * Math.PI / 180;
-    return Math.floor((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2 * (1 << z));
-  }
-  const b = map.getBounds();
-  const x0 = lon2tile(b.getWest(), zoom), x1 = lon2tile(b.getEast(), zoom);
-  const y0 = lat2tile(b.getNorth(), zoom), y1 = lat2tile(b.getSouth(), zoom);
-  const tiles = [];
-  for (let x = x0; x <= x1; x++)
-    for (let y = y0; y <= y1; y++)
-      tiles.push({ z: zoom, x, y });
-  return tiles;
-}
-
-// Fetch MVT state tiles, decode with @mapbox/vector-tile, return GeoJSON FeatureCollection
-async function fetchMegurinAsGeoJSON(secs) {
-  const FETCH_ZOOM = 12;
-  const tiles = getViewportTiles(FETCH_ZOOM);
-  const features = [];
-  await Promise.all(tiles.map(async ({ z, x, y }) => {
-    try {
-      const resp = await fetch(`${TILE_API}/state/${z}/${x}/${y}?seconds=${secs}`);
-      if (!resp.ok || resp.status === 204) return;
-      const ab = await resp.arrayBuffer();
-      if (!ab.byteLength) return;
-      // Decode MVT → GeoJSON features
-      const tile = new VectorTile.VectorTile(new Pbf(new Uint8Array(ab)));
-      for (const name of Object.keys(tile.layers)) {
-        const layer = tile.layers[name];
-        for (let i = 0; i < layer.length; i++) {
-          features.push(layer.feature(i).toGeoJSON(x, y, z));
-        }
-      }
-    } catch { /* empty or error tile — skip */ }
-  }));
-  return { type: 'FeatureCollection', features };
-}
-
 function setupMegurinLayers() {
   makeMegurinIcon();
   if (!map.getSource('megurin')) {
     map.addSource('megurin', {
-      type: 'geojson',
-      data: { type: 'FeatureCollection', features: [] },
+      type: 'vector',
+      tiles: ['stateTile://{z}/{x}/{y}'],
+      minzoom: 0, maxzoom: 18,
     });
   }
   if (!map.getLayer('megurin-bus')) {
     map.addLayer({
-      id: 'megurin-bus', type: 'symbol', source: 'megurin',
+      id: 'megurin-bus', type: 'symbol',
+      source: 'megurin', 'source-layer': 'geojsonLayer',
       layout: {
         'icon-image': 'megurin-sq',
         'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.4, 14, 0.7, 18, 1.0],
@@ -452,7 +433,8 @@ function setupMegurinLayers() {
   }
   if (!map.getLayer('megurin-label')) {
     map.addLayer({
-      id: 'megurin-label', type: 'symbol', source: 'megurin',
+      id: 'megurin-label', type: 'symbol',
+      source: 'megurin', 'source-layer': 'geojsonLayer',
       layout: {
         'text-field': ['get', 'route_name'], 'text-size': 11,
         'text-offset': [0, 1.6], 'text-allow-overlap': true,
@@ -469,28 +451,26 @@ function removeMegurinLayers() {
   if (map.getSource('megurin')) map.removeSource('megurin');
 }
 
-async function updateMegurin() {
+// Update stateTileSecs — the protocol handler reads this on every tile (re-)fetch.
+// No setTiles() needed: MapLibre auto-revalidates tiles when their TTL (1.5s) expires.
+function updateMegurin() {
   if (!megurinActive) return;
-  const secs = simMode === 'custom'
+  stateTileSecs = simMode === 'custom'
     ? parseInt(document.getElementById('sim-time-slider').value)
     : secsNow();
-  try {
-    const geojson = await fetchMegurinAsGeoJSON(secs);
-    if (!megurinActive) return;
-    const src = map.getSource('megurin');
-    if (src) {
-      src.setData(geojson);
-      document.getElementById('bus-count').textContent = `${geojson.features.length} 台`;
-    }
-  } catch (e) {
-    console.warn('megurin update failed:', e);
-  }
+  // Reflect current feature count from rendered tiles
+  const feats = map.querySourceFeatures('megurin', { sourceLayer: 'geojsonLayer' });
+  const uniq = new Set(feats.map(f => JSON.stringify(f.geometry?.coordinates)));
+  document.getElementById('bus-count').textContent = uniq.size ? `${uniq.size} 台` : '';
 }
 
 function startMegurin() {
+  stateTileSecs = simMode === 'custom'
+    ? parseInt(document.getElementById('sim-time-slider').value)
+    : secsNow();
   setupMegurinLayers();
   updateMegurin();
-  megurinTimer = setInterval(() => updateMegurin(), simMode === 'custom' ? 5000 : 1500);
+  megurinTimer = setInterval(updateMegurin, simMode === 'custom' ? 5000 : 1500);
 }
 
 function stopMegurin() {
