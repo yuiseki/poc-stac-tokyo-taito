@@ -224,7 +224,8 @@ function addDatasetLayer(itemId) {
   const item = allItems[itemId];
   const color = colColor(item?.collection);
   // insert below megurin layers so stacking order is: STAC < megurin < tile boundaries
-  const beforeId = map.getLayer('megurin-bus') ? 'megurin-bus' : undefined;
+  const megurinRef = [`megurin-a-bus`, `megurin-b-bus`].find(id => map.getLayer(id));
+  const beforeId = megurinRef || undefined;
   map.addLayer({
     id: layerId,
     type: 'circle',
@@ -461,14 +462,17 @@ function updateMegurin() {
   // load into the hidden slot
   map.getSource(nextSrc).setTiles([url]);
 
-  // wait for the hidden slot's tiles to finish loading, then flip
+  // isSourceLoaded = data fetched, but not yet painted.
+  // Wait for one render frame after load to ensure the new slot
+  // is actually composited before hiding the old one.
   const onSourceData = (e) => {
     if (e.sourceId !== nextSrc || !e.isSourceLoaded) return;
     map.off('sourcedata', onSourceData);
-
-    setSlotVisibility(nextSlot, true);
-    setSlotVisibility(megurinSlot, false);
-    megurinSlot = nextSlot;
+    map.once('render', () => {
+      setSlotVisibility(nextSlot, true);
+      setSlotVisibility(megurinSlot, false);
+      megurinSlot = nextSlot;
+    });
   };
   map.on('sourcedata', onSourceData);
 }
