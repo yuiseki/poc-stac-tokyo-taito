@@ -1,2444 +1,505 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TAITO STAC GEOPORTAL — 台東区オープンデータ STAC ジオポータル</title>
-    
-    <!-- Meta Descriptions for SEO -->
-    <meta name="description" content="台東区のオープンデータ(CSV)をSTAC(SpatioTemporal Asset Catalog)規格に変換し、MapLibre GL JS地図ビューワーで可視化するモダンなWeb GISアプリケーション。">
-    
-    <!-- Premium Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
-    
-    <!-- MapLibre GL JS CSS & JS -->
-    <link href="https://unpkg.com/maplibre-gl@4.3.2/dist/maplibre-gl.css" rel="stylesheet" />
-    <script src="https://unpkg.com/maplibre-gl@4.3.2/dist/maplibre-gl.js"></script>
-    
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@0.379.0/dist/umd/lucide.min.js"></script>
-    
-    <style>
-        :root {
-            --bg-dark: #080c14;
-            --bg-sidebar: rgba(13, 20, 38, 0.85);
-            --bg-card: rgba(22, 33, 54, 0.45);
-            --bg-card-hover: rgba(31, 46, 74, 0.7);
-            --bg-input: rgba(16, 24, 43, 0.8);
-            --border-color: rgba(255, 255, 255, 0.08);
-            --border-hover: rgba(255, 255, 255, 0.15);
-            --text-primary: #f8fafc;
-            --text-secondary: #94a3b8;
-            --text-muted: #64748b;
-            --accent: #4f46e5;
-            --accent-glow: rgba(79, 70, 229, 0.25);
-            
-            /* Collection Colors */
-            --color-sports: #10b981;
-            --color-kodomo: #a78bfa;
-            --color-bunka: #3b82f6;
-            --color-infra: #06b6d4;
-            --color-kanko: #fbbf24;
-            --color-kenko: #f472b6;
-            --color-kurashi: #f43f5e;
-            
-            --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            font-family: 'Plus Jakarta Sans', 'Noto Sans JP', sans-serif;
-            background-color: var(--bg-dark);
-            color: var(--text-primary);
-            overflow: hidden;
-            height: 100vh;
-            width: 100vw;
-        }
-
-        #app-container {
-            display: flex;
-            height: 100%;
-            width: 100%;
-            position: relative;
-        }
-
-        /* Sidebar Glassmorphism */
-        #sidebar {
-            width: 420px;
-            height: 100%;
-            background: var(--bg-sidebar);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border-right: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-            z-index: 10;
-            box-shadow: 10px 0 30px rgba(0,0,0,0.5);
-            transition: var(--transition-smooth);
-        }
-
-        /* Map Container */
-        #map {
-            flex: 1;
-            height: 100%;
-            position: relative;
-        }
-
-        /* Header Area */
-        .sidebar-header {
-            padding: 24px;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .logo-row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 8px;
-        }
-
-        .logo-icon {
-            color: var(--accent);
-            filter: drop-shadow(0 0 8px var(--accent-glow));
-        }
-
-        .logo-title {
-            font-size: 20px;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-            background: linear-gradient(135deg, #ffffff 30%, #a5b4fc 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .logo-subtitle {
-            font-size: 11px;
-            color: var(--text-secondary);
-            font-weight: 500;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        /* Connection Status Badge */
-        .status-row {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            margin-top: 12px;
-            font-size: 12px;
-        }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background-color: #e2e8f0;
-        }
-
-        .status-dot.active {
-            background-color: #10b981;
-            box-shadow: 0 0 8px #10b981;
-            animation: pulse 2s infinite;
-        }
-
-        .status-dot.warning {
-            background-color: #f59e0b;
-            box-shadow: 0 0 8px #f59e0b;
-        }
-
-        .status-dot.error {
-            background-color: #ef4444;
-            box-shadow: 0 0 8px #ef4444;
-        }
-
-        .status-text {
-            color: var(--text-secondary);
-            font-weight: 500;
-        }
-
-        @keyframes pulse {
-            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-            70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-        }
-
-        /* Search Section */
-        .search-container {
-            padding: 16px 24px;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .search-box {
-            position: relative;
-            width: 100%;
-        }
-
-        .search-box input {
-            width: 100%;
-            background: var(--bg-input);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 10px 14px 10px 40px;
-            color: var(--text-primary);
-            font-size: 14px;
-            font-family: inherit;
-            outline: none;
-            transition: var(--transition-smooth);
-        }
-
-        .search-box input:focus {
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px var(--accent-glow);
-        }
-
-        .search-box svg {
-            position: absolute;
-            left: 14px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--text-secondary);
-            pointer-events: none;
-        }
-
-        /* Quick Controls (Clear All, BBox Search etc) */
-        .controls-row {
-            display: flex;
-            gap: 8px;
-            margin-top: 12px;
-        }
-
-        .btn {
-            flex: 1;
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            color: var(--text-secondary);
-            font-size: 11.5px;
-            font-weight: 600;
-            padding: 8px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            transition: var(--transition-smooth);
-            font-family: inherit;
-        }
-
-        .btn:hover {
-            background: var(--bg-card-hover);
-            color: var(--text-primary);
-            border-color: var(--border-hover);
-        }
-
-        .btn-accent {
-            background: var(--accent);
-            color: #ffffff;
-            border: none;
-        }
-
-        .btn-accent:hover {
-            background: #4338ca;
-            color: #ffffff;
-            box-shadow: 0 0 12px rgba(79, 70, 229, 0.4);
-        }
-
-        /* Content List Scrollable Area */
-        .sidebar-content {
-            flex: 1;
-            overflow-y: auto;
-            padding: 16px 24px;
-        }
-
-        /* Custom Scrollbar for premium feel */
-        .sidebar-content::-webkit-scrollbar {
-            width: 5px;
-        }
-        .sidebar-content::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        .sidebar-content::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-        }
-        .sidebar-content::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
-
-        /* Section Titles */
-        .section-title {
-            font-size: 12px;
-            font-weight: 700;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            margin-bottom: 12px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        /* STAC Collections / Accordion list */
-        .collection-group {
-            margin-bottom: 12px;
-            border-radius: 8px;
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            overflow: hidden;
-            transition: var(--transition-smooth);
-        }
-
-        .collection-group.expanded {
-            border-color: rgba(255, 255, 255, 0.15);
-        }
-
-        .collection-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 14px 16px;
-            cursor: pointer;
-            user-select: none;
-            transition: var(--transition-smooth);
-        }
-
-        .collection-header:hover {
-            background: rgba(255,255,255,0.02);
-        }
-
-        .collection-title-side {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .collection-icon {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 28px;
-            height: 28px;
-            border-radius: 6px;
-            background: rgba(255, 255, 255, 0.04);
-        }
-
-        .collection-name {
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .collection-meta {
-            font-size: 11px;
-            color: var(--text-secondary);
-            font-weight: 500;
-            background: rgba(255, 255, 255, 0.05);
-            padding: 2px 6px;
-            border-radius: 12px;
-        }
-
-        .collection-chevron {
-            color: var(--text-secondary);
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .collection-group.expanded .collection-chevron {
-            transform: rotate(180deg);
-        }
-
-        /* Datasets list inside Collection */
-        .collection-datasets {
-            max-height: 0;
-            overflow: hidden;
-            transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            background: rgba(0, 0, 0, 0.2);
-            border-top: 0 solid var(--border-color);
-        }
-
-        .collection-group.expanded .collection-datasets {
-            max-height: 500px; /* Adjust dynamically as needed */
-            border-top-width: 1px;
-        }
-
-        .dataset-item {
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-            padding: 14px 16px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-            transition: var(--transition-smooth);
-        }
-
-        .dataset-item:last-child {
-            border-bottom: none;
-        }
-
-        .dataset-item:hover {
-            background: rgba(255, 255, 255, 0.02);
-        }
-
-        /* Checkbox styling */
-        .custom-checkbox {
-            position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 18px;
-            height: 18px;
-            border-radius: 4px;
-            border: 2px solid var(--text-muted);
-            cursor: pointer;
-            margin-top: 2px;
-            transition: var(--transition-smooth);
-            background: rgba(0,0,0,0.2);
-        }
-
-        .custom-checkbox input {
-            position: absolute;
-            opacity: 0;
-            cursor: pointer;
-            height: 0;
-            width: 0;
-        }
-
-        .custom-checkbox::after {
-            content: "";
-            position: absolute;
-            display: none;
-            width: 4px;
-            height: 8px;
-            border: solid white;
-            border-width: 0 2px 2px 0;
-            transform: rotate(45deg) translate(-1px, -1px);
-        }
-
-        .custom-checkbox.checked::after {
-            display: block;
-        }
-
-        .dataset-info {
-            flex: 1;
-            cursor: pointer;
-        }
-
-        .dataset-title-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 4px;
-        }
-
-        .dataset-title {
-            font-size: 13.5px;
-            font-weight: 500;
-            color: var(--text-primary);
-        }
-
-        .dataset-desc {
-            font-size: 11.5px;
-            color: var(--text-secondary);
-            line-height: 1.4;
-        }
-
-        .zoom-btn {
-            background: transparent;
-            border: none;
-            color: var(--text-secondary);
-            cursor: pointer;
-            border-radius: 4px;
-            padding: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: var(--transition-smooth);
-        }
-
-        .zoom-btn:hover {
-            color: var(--text-primary);
-            background: rgba(255,255,255,0.06);
-        }
-
-        /* Map UI Overlay (Floating Style Switcher) */
-        .map-overlay-panel {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            z-index: 5;
-            background: rgba(13, 20, 38, 0.8);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 8px;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-        }
-
-        .style-option-btn {
-            background: transparent;
-            border: none;
-            color: var(--text-secondary);
-            padding: 8px 12px;
-            font-size: 12px;
-            font-weight: 600;
-            font-family: inherit;
-            text-align: left;
-            border-radius: 4px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            transition: var(--transition-smooth);
-        }
-
-        .style-option-btn:hover {
-            background: rgba(255, 255, 255, 0.05);
-            color: var(--text-primary);
-        }
-
-        .style-option-btn.active {
-            background: var(--accent);
-            color: #ffffff;
-        }
-
-        /* Search Results Panel inside Sidebar */
-        .search-results-section {
-            margin-bottom: 16px;
-        }
-
-        .search-results-list {
-            list-style: none;
-            margin-top: 8px;
-            max-height: 180px;
-            overflow-y: auto;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            background: rgba(0, 0, 0, 0.15);
-        }
-
-        .search-result-item {
-            padding: 10px 12px;
-            font-size: 12px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-            cursor: pointer;
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-            transition: var(--transition-smooth);
-        }
-
-        .search-result-item:hover {
-            background: rgba(255,255,255,0.04);
-        }
-
-        .search-result-name {
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .search-result-detail {
-            color: var(--text-secondary);
-            font-size: 11px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        /* Spatial Search Drawer (Bbox overlay panel) */
-        .spatial-search-overlay {
-            position: absolute;
-            bottom: 20px;
-            left: 440px;
-            z-index: 5;
-            background: rgba(13, 20, 38, 0.85);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 16px;
-            width: 320px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            transition: var(--transition-smooth);
-            transform: translateY(120%);
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        .spatial-search-overlay.active {
-            transform: translateY(0);
-            opacity: 1;
-            pointer-events: auto;
-        }
-
-        .spatial-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .spatial-title {
-            font-size: 13px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--text-primary);
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .spatial-close {
-            background: transparent;
-            border: none;
-            color: var(--text-secondary);
-            cursor: pointer;
-        }
-
-        .spatial-close:hover {
-            color: var(--text-primary);
-        }
-
-        .spatial-results {
-            font-size: 12px;
-            color: var(--text-secondary);
-            max-height: 150px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
-        .spatial-item {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 6px;
-            padding: 8px;
-            cursor: pointer;
-            transition: var(--transition-smooth);
-        }
-
-        .spatial-item:hover {
-            background: rgba(255, 255, 255, 0.06);
-            border-color: rgba(255, 255, 255, 0.1);
-        }
-
-        .spatial-item-title {
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .spatial-item-collection {
-            font-size: 10px;
-            color: var(--accent);
-            text-transform: uppercase;
-            font-weight: 700;
-            margin-top: 2px;
-        }
-
-        /* MapLibre Popup Customizations */
-        .maplibregl-popup-content {
-            background: rgba(11, 15, 28, 0.9) !important;
-            backdrop-filter: blur(12px) !important;
-            -webkit-backdrop-filter: blur(12px) !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
-            border-radius: 12px !important;
-            padding: 18px !important;
-            color: var(--text-primary) !important;
-            box-shadow: 0 10px 35px rgba(0,0,0,0.6) !important;
-            max-width: 320px !important;
-        }
-
-        .maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: rgba(11, 15, 28, 0.9) !important; }
-        .maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: rgba(11, 15, 28, 0.9) !important; }
-        .maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: rgba(11, 15, 28, 0.9) !important; }
-        .maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: rgba(11, 15, 28, 0.9) !important; }
-
-        .maplibregl-popup-close-button {
-            color: var(--text-secondary) !important;
-            font-size: 16px !important;
-            right: 8px !important;
-            top: 8px !important;
-            width: 24px !important;
-            height: 24px !important;
-            border-radius: 50% !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            background: transparent !important;
-            border: none !important;
-            outline: none !important;
-            cursor: pointer !important;
-            transition: var(--transition-smooth) !important;
-        }
-
-        .maplibregl-popup-close-button:hover {
-            color: var(--text-primary) !important;
-            background: rgba(255,255,255,0.06) !important;
-        }
-
-        /* Popup Content Styles */
-        .popup-header {
-            margin-bottom: 12px;
-            padding-right: 14px;
-        }
-
-        .popup-title {
-            font-size: 15px;
-            font-weight: 700;
-            color: var(--text-primary);
-            line-height: 1.3;
-        }
-
-        .popup-collection-badge {
-            display: inline-block;
-            font-size: 10px;
-            font-weight: 700;
-            padding: 2px 6px;
-            border-radius: 10px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-top: 4px;
-            color: #ffffff;
-        }
-
-        .popup-body {
-            max-height: 180px;
-            overflow-y: auto;
-            border-top: 1px solid rgba(255,255,255,0.05);
-            padding-top: 10px;
-            margin-bottom: 12px;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
-        .popup-row {
-            display: flex;
-            flex-direction: column;
-            gap: 1px;
-        }
-
-        .popup-label {
-            font-size: 10px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .popup-val {
-            font-size: 12.5px;
-            color: var(--text-primary);
-            word-break: break-all;
-            line-height: 1.3;
-        }
-
-        .popup-val a {
-            color: var(--accent);
-            text-decoration: none;
-            font-weight: 500;
-            transition: var(--transition-smooth);
-        }
-
-        .popup-val a:hover {
-            color: #818cf8;
-            text-decoration: underline;
-        }
-
-        .popup-actions {
-            display: flex;
-            gap: 6px;
-            border-top: 1px solid rgba(255,255,255,0.05);
-            padding-top: 10px;
-        }
-
-        .popup-actions .btn {
-            padding: 6px;
-            font-size: 11px;
-        }
-
-        /* Mobile Drawer Toggle & Support */
-        .mobile-toggle {
-            display: none;
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            z-index: 15;
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
-            background: var(--accent);
-            color: #ffffff;
-            border: none;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            box-shadow: 0 4px 15px rgba(79, 70, 229, 0.4);
-            transition: var(--transition-smooth);
-        }
-
-        @media (max-width: 768px) {
-            #sidebar {
-                position: absolute;
-                left: 0;
-                top: 0;
-                transform: translateX(-100%);
-                width: 100%;
-                max-width: 350px;
-            }
-
-            #sidebar.active {
-                transform: translateX(0);
-            }
-
-            .spatial-search-overlay {
-                left: 20px;
-                width: calc(100% - 40px);
-            }
-
-            .mobile-toggle {
-                display: flex;
-            }
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>台東区オープンデータ STAC ジオポータル</title>
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; font: 13px/1.5 -apple-system, 'Noto Sans JP', sans-serif; background: #0d1426; color: #e2e8f0; }
+
+    #app { display: flex; height: 100%; }
+
+    /* Sidebar */
+    #sidebar {
+      width: 260px; flex-shrink: 0;
+      background: rgba(13, 20, 38, 0.97);
+      border-right: 1px solid rgba(255,255,255,0.07);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    #sidebar-header {
+      padding: 12px 14px 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      flex-shrink: 0;
+    }
+    #sidebar-header h1 { font-size: 13px; font-weight: 600; color: #93c5fd; margin-bottom: 4px; }
+    #status-line { font-size: 11px; color: #64748b; display: flex; align-items: center; gap: 5px; }
+    #status-dot { width: 7px; height: 7px; border-radius: 50%; background: #64748b; flex-shrink: 0; }
+    #status-dot.online { background: #4ade80; }
+    #status-dot.error  { background: #f87171; }
+
+    /* Megurin section */
+    #megurin-section {
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      flex-shrink: 0;
+    }
+    #megurin-section h2 { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+    .megurin-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .toggle-switch { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-track {
+      position: absolute; inset: 0; background: #334155; border-radius: 20px; cursor: pointer; transition: background .2s;
+    }
+    .toggle-track::after {
+      content: ''; position: absolute; top: 2px; left: 2px;
+      width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform .2s;
+    }
+    input:checked + .toggle-track { background: #4f46e5; }
+    input:checked + .toggle-track::after { transform: translateX(16px); }
+    .megurin-label { font-size: 12px; flex: 1; }
+    #bus-count { font-size: 11px; color: #94a3b8; }
+
+    /* Time slider */
+    #sim-controls { margin-top: 8px; display: none; }
+    #sim-controls.visible { display: block; }
+    .sim-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    #sim-time-slider { flex: 1; accent-color: #4f46e5; }
+    #sim-time-display { font-size: 11px; color: #93c5fd; white-space: nowrap; min-width: 56px; text-align: right; }
+
+    /* Collections */
+    #collections-scroll { flex: 1; overflow-y: auto; padding: 8px 0; }
+    #collections-scroll::-webkit-scrollbar { width: 4px; }
+    #collections-scroll::-webkit-scrollbar-track { background: transparent; }
+    #collections-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+    .col-group { border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .col-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 14px; cursor: pointer; user-select: none;
+      font-size: 12px; font-weight: 600; color: #cbd5e1;
+    }
+    .col-header:hover { background: rgba(255,255,255,0.04); }
+    .col-caret { font-size: 10px; color: #64748b; margin-left: auto; transition: transform .15s; }
+    .col-caret.open { transform: rotate(90deg); }
+    .col-items { display: none; }
+    .col-items.open { display: block; }
+    .dataset-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 14px 6px 28px; cursor: pointer;
+      font-size: 12px; color: #94a3b8;
+    }
+    .dataset-item:hover { background: rgba(255,255,255,0.04); color: #e2e8f0; }
+    .dataset-item.active { color: #93c5fd; }
+    .dataset-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    /* Map */
+    #map { flex: 1; }
+
+    /* Map overlay */
+    #map-overlay {
+      position: absolute; top: 10px; right: 50px; z-index: 1;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .overlay-btn {
+      background: rgba(13,20,38,0.85); border: 1px solid rgba(255,255,255,0.12);
+      color: #cbd5e1; font-size: 11px; padding: 5px 10px; border-radius: 4px;
+      cursor: pointer; white-space: nowrap;
+    }
+    .overlay-btn:hover { background: rgba(31,46,74,0.9); color: #e2e8f0; }
+    .overlay-btn.active { border-color: #4f46e5; color: #93c5fd; }
+
+    /* Popup */
+    .maplibregl-popup-content {
+      background: rgba(13,20,38,0.97) !important;
+      border: 1px solid rgba(255,255,255,0.1) !important;
+      color: #e2e8f0 !important;
+      border-radius: 6px !important;
+      padding: 10px 12px !important;
+      font-size: 12px !important;
+      max-width: 280px !important;
+      max-height: 240px !important;
+      overflow-y: auto !important;
+    }
+    .maplibregl-popup-tip { border-top-color: rgba(13,20,38,0.97) !important; }
+    .popup-title { font-weight: 600; font-size: 13px; color: #93c5fd; margin-bottom: 6px; }
+    .popup-row { display: flex; gap: 6px; margin-top: 3px; }
+    .popup-key { color: #64748b; flex-shrink: 0; min-width: 60px; }
+    .popup-val { color: #cbd5e1; word-break: break-all; }
+  </style>
 </head>
 <body>
-    <div id="app-container">
-        <!-- Sidebar -->
-        <aside id="sidebar">
-            <!-- Header -->
-            <div class="sidebar-header">
-                <div class="logo-row">
-                    <i data-lucide="map" class="logo-icon" width="24" height="24"></i>
-                    <h1 class="logo-title">TAITO STAC</h1>
-                </div>
-                <div class="logo-subtitle">SpatioTemporal Asset Catalog</div>
-                
-                <div class="status-row">
-                    <div id="status-dot" class="status-dot"></div>
-                    <span id="status-text" class="status-text">STAC API: 接続確認中...</span>
-                </div>
-            </div>
-
-            <!-- Search Area -->
-            <div class="search-container">
-                <div class="search-box">
-                    <i data-lucide="search" width="16" height="16"></i>
-                    <input type="text" id="poi-search" placeholder="施設名や住所で検索..." autocomplete="off">
-                </div>
-                
-                <!-- Quick controls -->
-                <div class="controls-row">
-                    <button class="btn" id="btn-clear">
-                        <i data-lucide="eye-off" width="14" height="14"></i>非表示
-                    </button>
-                    <button class="btn" id="btn-all">
-                        <i data-lucide="eye" width="14" height="14"></i>すべて表示
-                    </button>
-                    <button class="btn btn-accent" id="btn-bbox-search">
-                        <i data-lucide="focus" width="14" height="14"></i>範囲内を検索
-                    </button>
-                </div>
-            </div>
-
-            <!-- Scrollable Content Area -->
-            <div class="sidebar-content">
-                <!-- Search results dynamic section -->
-                <div class="search-results-section" id="search-results-sec" style="display: none;">
-                    <div class="section-title">
-                        <span>検索結果 (<span id="search-count">0</span>)</span>
-                        <button class="zoom-btn" id="btn-close-search" title="検索を閉じる">
-                            <i data-lucide="x" width="12" height="12"></i>
-                        </button>
-                    </div>
-                    <ul class="search-results-list" id="search-results">
-                        <!-- Dynamic items -->
-                    </ul>
-                </div>
-
-                <!-- Megurin Realtime Simulator -->
-                <div class="section-title">
-                    <span>リアルタイム運行情報 (シミュレータ)</span>
-                    <span class="status-row" style="margin-top:0;">
-                        <span id="realtime-status-dot" class="status-dot"></span>
-                        <span id="realtime-status-text" class="status-text" style="font-size:10px;">停止中</span>
-                    </span>
-                </div>
-                
-                <div class="collection-group" style="margin-bottom: 20px; border-color: rgba(79, 70, 229, 0.3);">
-                    <div class="collection-header" id="megurin-realtime-header" style="background: rgba(79, 70, 229, 0.05); padding: 14px 16px;">
-                        <div class="collection-title-side" id="megurin-realtime-trigger" style="flex:1; display:flex; align-items:center; gap:12px; cursor:pointer;">
-                            <div class="collection-icon" style="background: rgba(79, 70, 229, 0.15); color: #818cf8; width: 28px; height: 28px; border-radius: 6px; display:flex; align-items:center; justify-content:center;">
-                                <i data-lucide="bus" width="16" height="16"></i>
-                            </div>
-                            <div>
-                                <div class="collection-name" style="font-size:14px; font-weight:600;">めぐりんリアルタイム運行位置</div>
-                                <div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">GTFS時刻表同期シミュレーター</div>
-                            </div>
-                        </div>
-                        <div style="display:flex; align-items:center;">
-                            <div id="megurin-toggle-switch" class="custom-checkbox" style="border-color: #818cf8; width:20px; height:20px; margin-top:0;">
-                                <input type="checkbox" id="megurin-realtime-toggle">
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Simulator Time Control -->
-                    <div id="megurin-simulator-controls" style="max-height:0; overflow:hidden; transition:var(--transition-smooth); background: rgba(0,0,0,0.25); border-top: 0 solid rgba(255,255,255,0.03);">
-                        <div style="padding:14px 16px; display:flex; flex-direction:column; gap:12px;">
-                            <!-- Mode Selector -->
-                            <div style="display:flex; gap:6px;">
-                                <button class="btn btn-accent" id="sim-mode-realtime" style="font-size:10.5px; padding:6px;">
-                                    <i data-lucide="clock" width="12" height="12" style="margin-right:2px;"></i>現実時間と同期
-                                </button>
-                                <button class="btn" id="sim-mode-custom" style="font-size:10.5px; padding:6px;">
-                                    <i data-lucide="sliders" width="12" height="12" style="margin-right:2px;"></i>時刻操作モード
-                                </button>
-                            </div>
-                            
-                            <!-- Custom Time Slider -->
-                            <div id="sim-slider-container" style="display:none; flex-direction:column; gap:6px;">
-                                <div style="display:flex; justify-content:space-between; align-items:center;">
-                                    <span style="font-size:11px; color:var(--text-secondary);">設定時刻:</span>
-                                    <span id="sim-time-display" style="font-size:13px; font-weight:700; color:#818cf8; font-family:monospace;">12:00:00</span>
-                                </div>
-                                <input type="range" id="sim-time-slider" min="21600" max="75600" value="43200" step="15" style="width:100%; accent-color:#818cf8; cursor:pointer;">
-                                <div style="display:flex; justify-content:space-between; font-size:9px; color:var(--text-muted); font-family:monospace;">
-                                    <span>06:00 (始発前)</span>
-                                    <span>21:00 (終電後)</span>
-                                </div>
-                              </div>
-                              
-                              <!-- Active Buses Count -->
-                              <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; border-top:1px solid rgba(255,255,255,0.05); padding-top:8px;">
-                                  <span style="color:var(--text-secondary);">運行中のバス台数:</span>
-                                  <span id="sim-bus-count" style="font-weight:700; color:#10b981;">0 台</span>
-                              </div>
-                          </div>
-                      </div>
-                  </div>
-
-                  <!-- STAC Collections -->
-                  <div class="section-title">
-                      <span>データレイヤー (STAC)</span>
-                  </div>
-                
-                <div id="collections-container">
-                    <!-- Dynamic collection cards -->
-                </div>
-            </div>
-        </aside>
-
-        <!-- Map Container -->
-        <main id="map"></main>
-
-        <!-- Style Switcher floating overlay -->
-        <div class="map-overlay-panel">
-            <button class="style-option-btn active" data-style="dark">
-                <i data-lucide="moon" width="14" height="14"></i>ダーク
-            </button>
-            <button class="style-option-btn" data-style="light">
-                <i data-lucide="sun" width="14" height="14"></i>ライト
-            </button>
-            <button class="style-option-btn" data-style="osm">
-                <i data-lucide="map-pin" width="14" height="14"></i>標準(OSM)
-            </button>
-            <div style="border-top: 1px solid var(--border-color); margin: 4px 0;"></div>
-            <button class="style-option-btn" id="btn-tile-boundaries">
-                <i data-lucide="grid" width="14" height="14"></i>タイル境界
-            </button>
-        </div>
-
-        <!-- Floating spatial search result drawer -->
-        <div class="spatial-search-overlay" id="spatial-drawer">
-            <div class="spatial-header">
-                <div class="spatial-title">
-                    <i data-lucide="radar" width="16" height="16"></i>
-                    <span>STAC 空間検索結果</span>
-                </div>
-                <button class="spatial-close" id="spatial-close-btn">
-                    <i data-lucide="x" width="14" height="14"></i>
-                </button>
-            </div>
-            <div id="spatial-results-meta" style="font-size: 11.5px; color: var(--text-secondary);">
-                表示中の範囲にあるデータセットを検索しました。
-            </div>
-            <div class="spatial-results" id="spatial-results-list">
-                <!-- Dynamic results -->
-            </div>
-        </div>
-
-        <!-- Floating Mobile Toggle -->
-        <button class="mobile-toggle" id="mobile-sidebar-toggle">
-            <i data-lucide="menu" id="mobile-toggle-icon"></i>
-        </button>
+<div id="app">
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <h1>台東区 STAC ジオポータル</h1>
+      <div id="status-line">
+        <span id="status-dot"></span>
+        <span id="status-text">接続中…</span>
+      </div>
     </div>
 
-    <script>
-        // Configuration
-        const STAC_API_URL = 'https://poc-stac-tokyo-taito.yuiseki.com/stac';
-        
-        // Static Fallbacks (used if API is offline)
-        const FALLBACK_COLLECTIONS = [
-            { id: "sports", title: "スポーツ", description: "台東区のスポーツ施設、体育館、運動場などのスポーツ関連データ。", color: "#10b981", icon: "activity" },
-            { id: "kodomo-kyoiku", title: "子供・若者・教育", description: "台東区の子ども食堂、教育施設、保育関連施設などのデータ。", color: "#a78bfa", icon: "baby" },
-            { id: "bunka-geijutsu", title: "文化・芸術", description: "台東区の文化財、公立図書館、博物館、美術館などのデータ。", color: "#3b82f6", icon: "palette" },
-            { id: "infra", title: "インフラ・まちづくり", description: "台東区の都市公園、都立公園などのインフラ・都市施設データ。", color: "#06b6d4", icon: "map" },
-            { id: "kanko", title: "観光", description: "台東区の宿泊施設、観光スポットなどのデータ。", color: "#fbbf24", icon: "compass" },
-            { id: "kenko-iryo", title: "健康・医療", description: "台東区の病院、診療所、薬局、美容所、理容所、クリーニング所などのデータ。", color: "#f472b6", icon: "heart-pulse" },
-            { id: "kurashi-sumai", title: "くらし・住まい", description: "台東区の福祉施設、救急医療機関、公営住宅などのくらし関連データ。", color: "#f43f5e", icon: "home" }
-        ];
-
-        const FALLBACK_ITEMS = [
-            { id: "t131067d2025000006", collection: "kenko-iryo", title: "理容所台帳", geojson: "data/t131067d2025000006.geojson" },
-            { id: "t131067d2025000003", collection: "infra", title: "都市公園・都立公園一覧", geojson: "data/t131067d2025000003.geojson" },
-            { id: "t131067d0000000256", collection: "kenko-iryo", title: "銭湯", geojson: "data/t131067d0000000256.geojson" },
-            { id: "t131067d0000000231", collection: "kurashi-sumai", title: "福祉施設", geojson: "data/t131067d0000000231.geojson" },
-            { id: "t131067d2025000002", collection: "kurashi-sumai", title: "公営住宅一覧", geojson: "data/t131067d2025000002.geojson" },
-            { id: "t131067d3100000004", collection: "sports", title: "スポーツ施設一覧", geojson: "data/t131067d3100000004.geojson" },
-            { id: "t131067d2025000004", collection: "kanko", title: "宿泊施設（旅館台帳）", geojson: "data/t131067d2025000004.geojson" },
-            { id: "t131067d3100000001", collection: "kodomo-kyoiku", title: "子ども食堂一覧", geojson: "data/t131067d3100000001.geojson" },
-            { id: "t131067d0000000230", collection: "kurashi-sumai", title: "救急医療機関", geojson: "data/t131067d0000000230.geojson" },
-            { id: "t131067d3100000005", collection: "bunka-geijutsu", title: "公立図書館情報", geojson: "data/t131067d3100000005.geojson" },
-            { id: "t131067d2025000007", collection: "kenko-iryo", title: "美容所台帳", geojson: "data/t131067d2025000007.geojson" },
-            { id: "t131067d2025000005", collection: "kenko-iryo", title: "クリーニング所台帳", geojson: "data/t131067d2025000005.geojson" },
-            { id: "t131067d0000000393", collection: "bunka-geijutsu", title: "文化財一覧", geojson: "data/t131067d0000000393.geojson" }
-        ];
-
-        // MapLibre tile style definitions (Pure offline/raster approach for premium stability)
-        const baseStyles = {
-            dark: {
-                version: 8,
-                sources: {
-                    "cartodb-dark": {
-                        type: "raster",
-                        tiles: ["https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png"],
-                        tileSize: 256,
-                        attribution: "&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors &copy; <a href='https://carto.com/attributions'>CARTO</a>"
-                    }
-                },
-                layers: [
-                    { id: "cartodb-dark-layer", type: "raster", source: "cartodb-dark", minzoom: 0, maxzoom: 20 }
-                ]
-            },
-            light: {
-                version: 8,
-                sources: {
-                    "cartodb-light": {
-                        type: "raster",
-                        tiles: ["https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png"],
-                        tileSize: 256,
-                        attribution: "&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors &copy; <a href='https://carto.com/attributions'>CARTO</a>"
-                    }
-                },
-                layers: [
-                    { id: "cartodb-light-layer", type: "raster", source: "cartodb-light", minzoom: 0, maxzoom: 20 }
-                ]
-            },
-            osm: {
-                version: 8,
-                sources: {
-                    "osm": {
-                        type: "raster",
-                        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-                        tileSize: 256,
-                        attribution: "&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors"
-                    }
-                },
-                layers: [
-                    { id: "osm-layer", type: "raster", source: "osm", minzoom: 0, maxzoom: 19 }
-                ]
-            }
-        };
-
-        // Application State
-        let map;
-        let isApiOnline = false;
-        let activeSources = new Set();  // Set of active GeoJSON dataset IDs
-        let loadedGeoJsonData = {};     // Map of datasetId -> full GeoJSON content
-        let allCollections = [];        // Loaded STAC Collections
-        let allItems = [];              // Loaded STAC Items
-
-        // Megurin Realtime Simulation State
-        let isMegurinRealtimeActive = false;
-        let megurinRealtimeTimer = null;
-        let megurinSimMode = 'realtime'; // 'realtime' or 'custom'
-        let megurinSimSeconds = 43200;    // Default to 12:00:00 (midday) in seconds
-
-        // Helper: Resolve GeoJSON URL from STAC Asset href
-        function resolveGeoJsonUrl(href) {
-            if (!href) return '';
-            let url = href;
-            // Handle absolute / relative formats elegantly
-            if (href.startsWith('/docs/')) {
-                url = href.substring(6); // "data/..."
-            } else if (href.startsWith('docs/')) {
-                url = href.substring(5); // "data/..."
-            }
-            return url;
-        }
-
-        // Helper: Get Collection Color
-        function getCollectionColor(collectionId) {
-            switch(collectionId) {
-                case 'sports': return '#10b981';       // Emerald
-                case 'kodomo-kyoiku': return '#a78bfa'; // Violet
-                case 'bunka-geijutsu': return '#3b82f6';// Blue
-                case 'infra': return '#06b6d4';        // Cyan
-                case 'kanko': return '#fbbf24';        // Amber
-                case 'kenko-iryo': return '#f472b6';   // Pink
-                case 'kurashi-sumai': return '#f43f5e'; // Rose
-                default: return '#4f46e5';             // Indigo
-            }
-        }
-
-        // Helper: Get Collection Icon
-        function getCollectionIcon(collectionId) {
-            switch(collectionId) {
-                case 'sports': return 'activity';
-                case 'kodomo-kyoiku': return 'baby';
-                case 'bunka-geijutsu': return 'palette';
-                case 'infra': return 'map';
-                case 'kanko': return 'compass';
-                case 'kenko-iryo': return 'heart-pulse';
-                case 'kurashi-sumai': return 'home';
-                default: return 'layers';
-            }
-        }
-
-        // Check STAC API Server Connection
-        async function checkStacApi() {
-            try {
-                const response = await fetch(`${STAC_API_URL}/collections`, { signal: AbortSignal.timeout(2000) });
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data && data.collections) {
-                        isApiOnline = true;
-                        updateStatusBadge('online', 'STAC API: オンライン (ポート8082)');
-                        return;
-                    }
-                }
-            } catch(e) {
-                console.warn('FastAPI STAC API is offline, falling back to static files.', e);
-            }
-            isApiOnline = false;
-            updateStatusBadge('warning', 'STAC API: オフライン (静的ファイルフォールバック)');
-        }
-
-        // Update UI Status Badge
-        function updateStatusBadge(status, text) {
-            const dot = document.getElementById('status-dot');
-            const txt = document.getElementById('status-text');
-            dot.className = 'status-dot';
-            if (status === 'online') {
-                dot.classList.add('active');
-            } else if (status === 'warning') {
-                dot.classList.add('warning');
-            } else {
-                dot.classList.add('error');
-            }
-            txt.innerText = text;
-        }
-
-        // Initialize MapLibre GL
-        function initMap() {
-            map = new maplibregl.Map({
-                container: 'map',
-                style: baseStyles.dark, // Start with dark theme
-                center: [139.7810, 35.7138], // Taito-ku Office coordinate
-                zoom: 13.5,
-                maxZoom: 19,
-                minZoom: 10
-            });
-
-            // Add Standard Map Controls
-            map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-left');
-            map.addControl(new maplibregl.ScaleControl({ maxWidth: 100, unit: 'metric' }), 'bottom-right');
-
-            map.on('load', async () => {
-                console.log('MapLibre fully loaded. Activating all layers by default...');
-                
-                // Activate all layers by default on initial map load
-                for (const item of allItems) {
-                    const color = getCollectionColor(item.collection);
-                    await toggleDataset(item.id, item.geojson, color, false);
-                }
-                
-                // Trigger rendering to update checkboxes in the sidebar
-                renderLayers();
-            });
-
-            // Setup global click event on map layers
-            map.on('click', (e) => {
-                // Build query layers list
-                let layersToQuery = Array.from(activeSources)
-                    .map(id => `${id}-layer`)
-                    .filter(layerId => map.getLayer(layerId));
-                
-                if (isMegurinRealtimeActive && map.getLayer('megurin-realtime-bus-layer')) {
-                    layersToQuery.push('megurin-realtime-bus-layer');
-                }
-                
-                if (layersToQuery.length === 0) return;
-
-                const features = map.queryRenderedFeatures(e.point, {
-                    layers: layersToQuery
-                });
-
-                if (!features.length) return;
-
-                const feature = features[0];
-                const layerId = feature.layer.id;
-                
-                if (layerId === 'megurin-realtime-bus-layer') {
-                    showBusPopup(feature);
-                } else {
-                    const datasetId = layerId.replace('-layer', '');
-                    const item = allItems.find(i => i.id === datasetId);
-                    const color = getCollectionColor(item ? item.collection : '');
-                    showPopup(feature, color, item);
-                }
-            });
-
-            // Setup global cursor hover handler
-            map.on('mousemove', (e) => {
-                let layersToQuery = Array.from(activeSources)
-                    .map(id => `${id}-layer`)
-                    .filter(layerId => map.getLayer(layerId));
-                
-                if (isMegurinRealtimeActive && map.getLayer('megurin-realtime-bus-layer')) {
-                    layersToQuery.push('megurin-realtime-bus-layer');
-                }
-                
-                if (layersToQuery.length === 0) {
-                    map.getCanvas().style.cursor = '';
-                    return;
-                }
-                const features = map.queryRenderedFeatures(e.point, {
-                    layers: layersToQuery
-                });
-                map.getCanvas().style.cursor = features.length ? 'pointer' : '';
-            });
-        }
-
-        // Show a beautifully styled custom MapLibre GL popup
-        function showPopup(feature, color, item) {
-            const props = feature.properties;
-            const geom = feature.geometry;
-            const name = props['名称'] || props['施設名'] || props['文化財名称'] || '名称不明';
-            const address = props['所在地_連結表記'] || props['住所'] || props['所在地'] || '';
-            const coord = geom.coordinates;
-
-            // Generate customized properties table
-            let tableRowsHtml = '';
-            
-            // Filter keys to exclude system/unnecessary ones
-            const excludedKeys = ['全国地方公共団体コード', '﻿全国地方公共団体コード', 'ID', '緯度', '経度', '名称', '名称_カナ', '所在地_連結表記', '所在地_都道府県', '所在地_市区町村', '所在地_町字', '所在地_番地以下', '住所', '施設名', '文化財名称', '文化財の種別_大区分_名称', '文化財の種別_中区分_名称', '詳細情報_名称'];
-            
-            for (const [key, value] of Object.entries(props)) {
-                // Strip BOM if present
-                const cleanKey = key.replace(/^\ufeff/, '');
-                if (excludedKeys.includes(cleanKey) || !value) continue;
-
-                let displayVal = value;
-                if (cleanKey.toLowerCase().includes('url') || value.toString().startsWith('http')) {
-                    displayVal = `<a href="${value}" target="_blank" rel="noopener noreferrer">リンクを開く <i data-lucide="external-link" style="display:inline-block; vertical-align:middle;" width="11" height="11"></i></a>`;
-                } else if (cleanKey.includes('電話番号') && value) {
-                    displayVal = `<a href="tel:${value}">${value}</a>`;
-                } else if (cleanKey.includes('メールアドレス') && value) {
-                    displayVal = `<a href="mailto:${value}">${value}</a>`;
-                }
-
-                tableRowsHtml += `
-                    <div class="popup-row">
-                        <div class="popup-label">${cleanKey}</div>
-                        <div class="popup-val">${displayVal}</div>
-                    </div>
-                `;
-            }
-
-            const popupContent = `
-                <div class="popup-header">
-                    <div class="popup-title">${name}</div>
-                    <span class="popup-collection-badge" style="background-color: ${color};">
-                        ${item ? item.title : '施設データ'}
-                    </span>
-                </div>
-                <div class="popup-body">
-                    ${address ? `
-                    <div class="popup-row">
-                        <div class="popup-label">所在地</div>
-                        <div class="popup-val">${address}</div>
-                    </div>` : ''}
-                    ${tableRowsHtml}
-                </div>
-                <div class="popup-actions">
-                    <button class="btn btn-accent" onclick="window.open('https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name + ' ' + address)}', '_blank')">
-                        <i data-lucide="navigation" width="12" height="12"></i> ルート案内
-                    </button>
-                </div>
-            `;
-
-            new maplibregl.Popup({ closeOnClick: true, offset: 10 })
-                .setLngLat(coord)
-                .setHTML(popupContent)
-                .addTo(map);
-
-            // Re-create lucide icons for elements created inside popup
-            setTimeout(() => lucide.createIcons(), 50);
-        }
-
-        // Fetch Catalog metadata and build layer listing
-        async function fetchCatalogAndLoad() {
-            await checkStacApi();
-
-            if (isApiOnline) {
-                try {
-                    // Fetch Collections dynamically
-                    const colsResponse = await fetch(`${STAC_API_URL}/collections`);
-                    const colsData = await colsResponse.json();
-                    allCollections = colsData.collections.map(col => {
-                        // Enforce colors and icons for collections
-                        return {
-                            ...col,
-                            color: getCollectionColor(col.id),
-                            icon: getCollectionIcon(col.id)
-                        };
-                    });
-
-                    // Fetch Items inside each collection
-                    allItems = [];
-                    for (const col of allCollections) {
-                        try {
-                            const itemsResponse = await fetch(`${STAC_API_URL}/collections/${col.id}/items?limit=100`);
-                            const itemsData = await itemsResponse.json();
-                            if (itemsData && itemsData.features) {
-                                itemsData.features.forEach(feat => {
-                                    allItems.push({
-                                        id: feat.id,
-                                        collection: col.id,
-                                        title: feat.properties.title || feat.properties.description || feat.id,
-                                        description: feat.properties.description || '',
-                                        geojson: resolveGeoJsonUrl(feat.assets.geojson.href),
-                                        bbox: feat.bbox
-                                    });
-                                });
-                            }
-                        } catch(err) {
-                            console.error(`Error loading items for collection ${col.id}`, err);
-                        }
-                    }
-                    console.log('Dynamic API Mode: Loaded collections and items successfully.', { allCollections, allItems });
-                } catch(e) {
-                    console.error('Error fetching STAC API data, utilizing local static fallback.', e);
-                    loadStaticFallback();
-                }
-            } else {
-                loadStaticFallback();
-            }
-
-            renderLayers();
-        }
-
-        // Load static fallbacks in case API is down
-        function loadStaticFallback() {
-            allCollections = FALLBACK_COLLECTIONS;
-            allItems = FALLBACK_ITEMS;
-            console.log('Static Fallback Mode: Loaded collections and items successfully.', { allCollections, allItems });
-        }
-
-        // Render Sidebar Collection groups & layers list
-        function renderLayers() {
-            const container = document.getElementById('collections-container');
-            container.innerHTML = '';
-
-            allCollections.forEach(col => {
-                const groupItems = allItems.filter(i => i.collection === col.id);
-                if (groupItems.length === 0) return; // Hide empty collections
-
-                const groupDiv = document.createElement('div');
-                groupDiv.className = `collection-group` + (col.id === 'kodomo-kyoiku' || col.id === 'sports' ? ' expanded' : '');
-                groupDiv.id = `col-group-${col.id}`;
-
-                let datasetRowsHtml = '';
-                groupItems.forEach(item => {
-                    const isActive = activeSources.has(item.id);
-                    datasetRowsHtml += `
-                        <div class="dataset-item" id="dataset-${item.id}">
-                            <div class="custom-checkbox ${isActive ? 'checked' : ''}" style="border-color: ${col.color}; background-color: ${isActive ? col.color : 'transparent'}" onclick="toggleDataset('${item.id}', '${item.geojson}', '${col.color}')">
-                                <input type="checkbox" ${isActive ? 'checked' : ''}>
-                            </div>
-                            <div class="dataset-info" onclick="toggleDataset('${item.id}', '${item.geojson}', '${col.color}')">
-                                <div class="dataset-title-row">
-                                    <span class="dataset-title">${item.title}</span>
-                                </div>
-                                <span class="dataset-desc">${col.title} / 台東区のオープンデータ</span>
-                            </div>
-                            <button class="zoom-btn" onclick="zoomToDataset('${item.id}')" title="このレイヤーの全範囲にズーム">
-                                <i data-lucide="maximize-2" width="13" height="13"></i>
-                            </button>
-                        </div>
-                    `;
-                });
-
-                groupDiv.innerHTML = `
-                    <div class="collection-header" onclick="toggleAccordion('${col.id}')">
-                        <div class="collection-title-side">
-                            <div class="collection-icon" style="color: ${col.color};">
-                                <i data-lucide="${col.icon || 'layers'}" width="16" height="16"></i>
-                            </div>
-                            <span class="collection-name">${col.title}</span>
-                        </div>
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <span class="collection-meta">${groupItems.length}件</span>
-                            <i data-lucide="chevron-down" class="collection-chevron" width="16" height="16"></i>
-                        </div>
-                    </div>
-                    <div class="collection-datasets" id="datasets-container-${col.id}">
-                        ${datasetRowsHtml}
-                    </div>
-                `;
-
-                container.appendChild(groupDiv);
-            });
-
-            lucide.createIcons();
-        }
-
-        // Toggle accordion collapse/expand
-        function toggleAccordion(colId) {
-            const group = document.getElementById(`col-group-${colId}`);
-            group.classList.toggle('expanded');
-        }
-
-        // Toggle dataset layer active/inactive state on Map
-        async function toggleDataset(id, geojsonPath, color, autoZoom = true) {
-            // Find item metadata
-            const item = allItems.find(i => i.id === id);
-            if (!item) return;
-
-            const checkboxDiv = document.querySelector(`#dataset-${id} .custom-checkbox`);
-            
-            if (activeSources.has(id)) {
-                // Remove layer
-                activeSources.delete(id);
-                if (map.getLayer(`${id}-layer`)) {
-                    map.removeLayer(`${id}-layer`);
-                }
-                if (map.getSource(id)) {
-                    map.removeSource(id);
-                }
-                if (checkboxDiv) {
-                    checkboxDiv.classList.remove('checked');
-                    checkboxDiv.style.backgroundColor = 'transparent';
-                }
-            } else {
-                // Add layer
-                activeSources.add(id);
-                if (checkboxDiv) {
-                    checkboxDiv.classList.add('checked');
-                    checkboxDiv.style.backgroundColor = color;
-                }
-
-                try {
-                    if (isApiOnline) {
-                        // Ensure vector tile source is added
-                        if (!map.getSource('taito-mvt-source')) {
-                            const tileUrl = STAC_API_URL.replace('/stac', '') + '/tiles/{z}/{x}/{y}';
-                            map.addSource('taito-mvt-source', {
-                                type: 'vector',
-                                tiles: [tileUrl],
-                                minzoom: 0,
-                                maxzoom: 18
-                            });
-                        }
-
-                        if (!map.getLayer(`${id}-layer`)) {
-                            map.addLayer({
-                                id: `${id}-layer`,
-                                type: 'circle',
-                                source: 'taito-mvt-source',
-                                'source-layer': 'geojsonLayer',
-                                filter: ['==', ['get', 'dataset_id'], id],
-                                paint: {
-                                    'circle-radius': [
-                                        'interpolate',
-                                        ['linear'],
-                                        ['zoom'],
-                                        10, 4,
-                                        14, 7,
-                                        18, 12
-                                    ],
-                                    'circle-color': color,
-                                    'circle-stroke-width': 1.8,
-                                    'circle-stroke-color': '#ffffff',
-                                    'circle-opacity': 0.85
-                                }
-                            });
-                        }
-                    } else {
-                        // Fetch GeoJSON data (with caching) only for offline fallback
-                        let geojsonData;
-                        if (loadedGeoJsonData[id]) {
-                            geojsonData = loadedGeoJsonData[id];
-                        } else {
-                            const response = await fetch(geojsonPath);
-                            geojsonData = await response.json();
-                            loadedGeoJsonData[id] = geojsonData;
-                        }
-
-                        // Ensure map loaded source
-                        if (!map.getSource(id)) {
-                            map.addSource(id, {
-                                type: 'geojson',
-                                data: geojsonData
-                            });
-                        }
-
-                        if (!map.getLayer(`${id}-layer`)) {
-                            map.addLayer({
-                                id: `${id}-layer`,
-                                type: 'circle',
-                                source: id,
-                                paint: {
-                                    'circle-radius': [
-                                        'interpolate',
-                                        ['linear'],
-                                        ['zoom'],
-                                        10, 4,
-                                        14, 7,
-                                        18, 12
-                                    ],
-                                    'circle-color': color,
-                                    'circle-stroke-width': 1.8,
-                                    'circle-stroke-color': '#ffffff',
-                                    'circle-opacity': 0.85
-                                }
-                            });
-                        }
-                    }
-
-                    if (autoZoom) {
-                        // Automatically fly and adjust bounds to loaded dataset!
-                        zoomToDataset(id);
-                    }
-
-                } catch(e) {
-                    console.error(`Failed to load layer for ${id}:`, e);
-                    activeSources.delete(id);
-                    if (checkboxDiv) {
-                        checkboxDiv.classList.remove('checked');
-                        checkboxDiv.style.backgroundColor = 'transparent';
-                    }
-                    alert(`レイヤーの読み込みに失敗しました。`);
-                }
-            }
-        }
-
-        // Zoom map viewport to enclose the bbox of selected dataset
-        function zoomToDataset(id) {
-            const item = allItems.find(i => i.id === id);
-            if (isApiOnline && item && item.bbox && item.bbox.length === 4) {
-                map.fitBounds(item.bbox, {
-                    padding: 60,
-                    duration: 1500,
-                    maxZoom: 16
-                });
-                return;
-            }
-
-            const data = loadedGeoJsonData[id];
-            if (!data || !data.features || data.features.length === 0) return;
-
-            // Calculate precise bounds
-            let minLon = 180, minLat = 90, maxLon = -180, maxLat = -90;
-            let count = 0;
-
-            data.features.forEach(feat => {
-                if (feat.geometry && feat.geometry.coordinates) {
-                    const [lon, lat] = feat.geometry.coordinates;
-                    if (lon < minLon) minLon = lon;
-                    if (lat < minLat) minLat = lat;
-                    if (lon > maxLon) maxLon = lon;
-                    if (lat > maxLat) maxLat = lat;
-                    count++;
-                }
-            });
-
-            if (count > 0) {
-                map.fitBounds([minLon, minLat, maxLon, maxLat], {
-                    padding: 60,
-                    duration: 1500,
-                    maxZoom: 16
-                });
-            }
-        }
-
-        // Megurin Simulator Controllers & Map Rendering Logic
-        function initMegurinRealtimeUI() {
-            const toggle = document.getElementById('megurin-realtime-toggle');
-            const trigger = document.getElementById('megurin-realtime-trigger');
-            const switchDiv = document.getElementById('megurin-toggle-switch');
-            const controls = document.getElementById('megurin-simulator-controls');
-            
-            const btnRealtime = document.getElementById('sim-mode-realtime');
-            const btnCustom = document.getElementById('sim-mode-custom');
-            const sliderContainer = document.getElementById('sim-slider-container');
-            const slider = document.getElementById('sim-time-slider');
-            const display = document.getElementById('sim-time-display');
-
-            // Toggle trigger
-            const handleToggle = () => {
-                isMegurinRealtimeActive = !isMegurinRealtimeActive;
-                toggle.checked = isMegurinRealtimeActive;
-                switchDiv.classList.toggle('checked', isMegurinRealtimeActive);
-                
-                if (isMegurinRealtimeActive) {
-                    switchDiv.style.backgroundColor = '#818cf8';
-                    controls.style.maxHeight = '200px';
-                    controls.style.borderTopWidth = '1px';
-                    controls.style.borderTopStyle = 'solid';
-                    toggleMegurinRealtime(true);
-                } else {
-                    switchDiv.style.backgroundColor = 'transparent';
-                    controls.style.maxHeight = '0';
-                    controls.style.borderTopWidth = '0';
-                    toggleMegurinRealtime(false);
-                }
-            };
-
-            trigger.onclick = handleToggle;
-            switchDiv.onclick = handleToggle;
-
-            // Mode selector buttons
-            btnRealtime.onclick = () => {
-                megurinSimMode = 'realtime';
-                btnRealtime.classList.add('btn-accent');
-                btnCustom.classList.remove('btn-accent');
-                sliderContainer.style.display = 'none';
-                updateMegurinPositions();
-            };
-
-            btnCustom.onclick = () => {
-                megurinSimMode = 'custom';
-                btnCustom.classList.add('btn-accent');
-                btnRealtime.classList.remove('btn-accent');
-                sliderContainer.style.display = 'flex';
-                
-                // Initialize slider with current real time if close to running hours, or default 12:00
-                const now = new Date();
-                const currentSecs = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
-                if (currentSecs >= 21600 && currentSecs <= 75600) {
-                    megurinSimSeconds = currentSecs;
-                } else {
-                    megurinSimSeconds = 43200; // 12:00 PM
-                }
-                slider.value = megurinSimSeconds;
-                updateSliderDisplay();
-                updateMegurinPositions();
-            };
-
-            // Slider change
-            slider.oninput = () => {
-                megurinSimSeconds = parseInt(slider.value);
-                updateSliderDisplay();
-                updateMegurinPositions();
-            };
-
-            function updateSliderDisplay() {
-                const h = Math.floor(megurinSimSeconds / 3600);
-                const m = Math.floor((megurinSimSeconds % 3600) / 60);
-                const s = megurinSimSeconds % 60;
-                display.innerText = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-            }
-        }
-
-        function getSimulationSeconds() {
-            if (megurinSimMode === 'realtime') {
-                const now = new Date();
-                return now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
-            } else {
-                return megurinSimSeconds;
-            }
-        }
-
-        async function toggleMegurinRealtime(active) {
-            const dot = document.getElementById('realtime-status-dot');
-            const text = document.getElementById('realtime-status-text');
-            const busCountBadge = document.getElementById('sim-bus-count');
-
-            if (active) {
-                dot.className = 'status-dot active';
-                text.innerText = '配信中';
-                
-                // Zoom map to Taito-ku region
-                map.flyTo({
-                    center: [139.7850, 35.7180],
-                    zoom: 14.2,
-                    pitch: 30,
-                    duration: 1500
-                });
-
-                // Register SDF image for square bus markers if not exists
-                if (!map.getImage('megurin-square-sdf')) {
-                    const size = 32;
-                    const canvas = document.createElement('canvas');
-                    canvas.width = size;
-                    canvas.height = size;
-                    const ctx = canvas.getContext('2d');
-                    
-                    const radius = 6;
-                    const pad = 4; // Margin for Halo outline padding
-                    
-                    ctx.beginPath();
-                    ctx.moveTo(pad + radius, pad);
-                    ctx.lineTo(size - pad - radius, pad);
-                    ctx.quadraticCurveTo(size - pad, pad, size - pad, pad + radius);
-                    ctx.lineTo(size - pad, size - pad - radius);
-                    ctx.quadraticCurveTo(size - pad, size - pad, size - pad - radius, size - pad);
-                    ctx.lineTo(pad + radius, size - pad);
-                    ctx.quadraticCurveTo(pad, size - pad, pad, size - pad - radius);
-                    ctx.lineTo(pad, pad + radius);
-                    ctx.quadraticCurveTo(pad, pad, pad + radius, pad);
-                    ctx.closePath();
-                    
-                    ctx.fillStyle = '#000000'; // SDF requires opaque pixels to define geometry
-                    ctx.fill();
-                    
-                    const imgData = ctx.getImageData(0, 0, size, size);
-                    map.addImage('megurin-square-sdf', imgData, { sdf: true });
-                }
-
-                // Register real-time source and layers
-                const serverBase = STAC_API_URL.replace('/stac', '');
-                
-                if (!map.getSource('megurin-realtime-source')) {
-                    map.addSource('megurin-realtime-source', {
-                        type: 'geojson',
-                        data: { type: 'FeatureCollection', features: [] }
-                    });
-                }
-
-                // Symbol layer (SQUARE with SDF) for buses
-                if (!map.getLayer('megurin-realtime-bus-layer')) {
-                    map.addLayer({
-                        id: 'megurin-realtime-bus-layer',
-                        type: 'symbol',
-                        source: 'megurin-realtime-source',
-                        layout: {
-                            'icon-image': 'megurin-square-sdf',
-                            'icon-size': [
-                                'interpolate',
-                                ['linear'],
-                                ['zoom'],
-                                10, 0.4,
-                                14, 0.7,
-                                18, 1.0
-                            ],
-                            'icon-allow-overlap': true,
-                            'icon-ignore-placement': true
-                        },
-                        paint: {
-                            'icon-color': ['coalesce', ['get', 'route_color'], '#4f46e5'],
-                            'icon-halo-color': '#ffffff',
-                            'icon-halo-width': 2.5
-                        }
-                    });
-                }
-
-                // Label layer for routes
-                if (!map.getLayer('megurin-realtime-label-layer')) {
-                    map.addLayer({
-                        id: 'megurin-realtime-label-layer',
-                        type: 'symbol',
-                        source: 'megurin-realtime-source',
-                        layout: {
-                            'text-field': ['get', 'route_name'],
-                            'text-size': 11,
-                            'text-offset': [0, 1.6],
-                            'text-anchor': 'top',
-                            'text-allow-overlap': true,
-                            'text-ignore-placement': true
-                        },
-                        paint: {
-                            'text-color': '#ffffff',
-                            'text-halo-color': 'rgba(8, 12, 20, 0.9)',
-                            'text-halo-width': 2.0
-                        }
-                    });
-                }
-
-                // Polling loop
-                megurinRealtimeTimer = setInterval(() => {
-                    if (megurinSimMode === 'custom') {
-                        // Increment simulation seconds slightly (e.g., +3 seconds per ticks to make it animated)
-                        megurinSimSeconds += 3;
-                        if (megurinSimSeconds > 75600) megurinSimSeconds = 21600; // loop back to 6:00 AM
-                        const slider = document.getElementById('sim-time-slider');
-                        if (slider) {
-                            slider.value = megurinSimSeconds;
-                            const h = Math.floor(megurinSimSeconds / 3600);
-                            const m = Math.floor((megurinSimSeconds % 3600) / 60);
-                            const s = megurinSimSeconds % 60;
-                            document.getElementById('sim-time-display').innerText = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-                        }
-                    }
-                    updateMegurinPositions();
-                }, 1500);
-
-                // Trigger first update
-                updateMegurinPositions();
-
-            } else {
-                dot.className = 'status-dot';
-                text.innerText = '停止中';
-                busCountBadge.innerText = '0 台';
-
-                if (megurinRealtimeTimer) {
-                    clearInterval(megurinRealtimeTimer);
-                    megurinRealtimeTimer = null;
-                }
-
-                // Cleanup map layers
-                if (map.getLayer('megurin-realtime-label-layer')) map.removeLayer('megurin-realtime-label-layer');
-                if (map.getLayer('megurin-realtime-bus-layer')) map.removeLayer('megurin-realtime-bus-layer');
-                if (map.getSource('megurin-realtime-source')) map.removeSource('megurin-realtime-source');
-            }
-        }
-
-        async function updateMegurinPositions() {
-            if (!isMegurinRealtimeActive || !map) return;
-
-            const secs = getSimulationSeconds();
-            const serverBase = STAC_API_URL.replace('/stac', '');
-            
-            // Fetch GeoJSON positions dynamically for both UI counting and smooth map rendering
-            try {
-                const busCountBadge = document.getElementById('sim-bus-count');
-                fetch(`${serverBase}/state/buses?seconds=${secs}`)
-                    .then(res => res.json())
-                    .then(data => {
-                        // 1. Update active buses count on UI
-                        const count = (data && data.features) ? data.features.length : 0;
-                        busCountBadge.innerText = `${count} 台`;
-                        if (count > 0) {
-                            busCountBadge.style.color = '#10b981';
-                        } else {
-                            busCountBadge.style.color = 'var(--text-secondary)';
-                            if (megurinSimMode === 'realtime') {
-                                busCountBadge.innerText = `0 台 (運行時間外)`;
-                            }
-                        }
-
-                        // 2. Smoothly update GeoJSON source on map without any flickering
-                        const source = map.getSource('megurin-realtime-source');
-                        if (source && data) {
-                            source.setData(data);
-                        }
-                    })
-                    .catch(err => {
-                        console.error("Failed to fetch active bus coordinates:", err);
-                    });
-            } catch (err) {
-                console.error("Error updating bus coordinates & count details", err);
-            }
-        }
-
-        function showBusPopup(feature) {
-            const props = feature.properties;
-            const geom = feature.geometry;
-            const routeName = props.route_name || 'めぐりん';
-            const routeColor = props.route_color || '#4f46e5';
-            const headsign = props.trip_headsign || '循環';
-            const status = props.status === 'stopped' ? '停留所に停車中' : '停留所間を移動中';
-            
-            let statusDescHtml = '';
-            if (props.status === 'stopped') {
-                statusDescHtml = `
-                    <div style="font-size: 13px; font-weight:600; color:#10b981; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
-                        <div style="width:8px; height:8px; border-radius:50%; background-color:#10b981; animation:pulse 1.5s infinite;"></div>
-                        <span>${props.current_stop_name} に停車中</span>
-                    </div>
-                    <div style="font-size:11px; color:var(--text-secondary);">
-                        出発予定時刻: ${props.prev_stop_time}
-                    </div>
-                `;
-            } else {
-                const progressPct = Math.round((props.progress || 0) * 100);
-                statusDescHtml = `
-                    <div style="font-size: 13px; font-weight:600; color:#818cf8; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
-                        <div style="width:8px; height:8px; border-radius:50%; background-color:#818cf8;"></div>
-                        <span>巡航中 (進捗: ${progressPct}%)</span>
-                    </div>
-                    <div style="font-size:11.5px; display:flex; flex-direction:column; gap:2px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.04); border-radius:6px; padding:6px; margin-top:4px;">
-                        <div><span style="color:var(--text-muted); font-size:10px;">直前:</span> ${props.prev_stop_name} (${props.prev_stop_time} 発)</div>
-                        <div style="border-top:1px solid rgba(255,255,255,0.03); margin: 3px 0;"></div>
-                        <div><span style="color:var(--text-muted); font-size:10px;">次へ:</span> ${props.next_stop_name} (${props.next_stop_time} 着予定)</div>
-                    </div>
-                `;
-            }
-
-            const popupContent = `
-                <div class="popup-header">
-                    <div class="popup-title" style="display:flex; align-items:center; gap:6px;">
-                        <i data-lucide="bus" style="color:${routeColor};" width="16" height="16"></i>
-                        <span style="font-weight:700;">${routeName}</span>
-                    </div>
-                    <span class="popup-collection-badge" style="background-color: ${routeColor}; font-size:9px; padding:1px 5px;">
-                        行先: ${headsign}
-                    </span>
-                </div>
-                <div class="popup-body" style="max-height: 250px;">
-                    <div class="popup-row" style="margin-bottom:6px;">
-                        <div class="popup-label">運行ステータス</div>
-                        <div class="popup-val" style="margin-top:4px;">
-                            ${statusDescHtml}
-                        </div>
-                    </div>
-                    <div class="popup-row" style="border-top:1px solid rgba(255,255,255,0.05); padding-top:6px;">
-                        <div class="popup-label">運行ダイヤ情報</div>
-                        <div class="popup-val" style="font-size:11.5px; color:var(--text-secondary); margin-top:2px;">
-                            <div>トリップID: <span style="font-family:monospace; font-size:10.5px;">${props.trip_id}</span></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="popup-actions" style="border-top:1px solid rgba(255,255,255,0.05); padding-top:8px; display:flex; justify-content:flex-end;">
-                    <span style="font-size:9px; color:var(--text-muted); font-family:monospace;">TAITO REALTIME BUS</span>
-                </div>
-            `;
-
-            new maplibregl.Popup({ closeOnClick: true, offset: 10 })
-                .setLngLat(geom.coordinates)
-                .setHTML(popupContent)
-                .addTo(map);
-
-            setTimeout(() => lucide.createIcons(), 50);
-        }
-
-        // Realtime attributes & text search mechanism
-        function initSearch() {
-            const searchInput = document.getElementById('poi-search');
-            const searchSec = document.getElementById('search-results-sec');
-            const resultsList = document.getElementById('search-results');
-            const searchCountBadge = document.getElementById('search-count');
-            const closeBtn = document.getElementById('btn-close-search');
-
-            closeBtn.onclick = () => {
-                searchInput.value = '';
-                searchSec.style.display = 'none';
-                resultsList.innerHTML = '';
-            };
-
-            searchInput.oninput = async () => {
-                const query = searchInput.value.trim().toLowerCase();
-                if (!query) {
-                    searchSec.style.display = 'none';
-                    resultsList.innerHTML = '';
-                    return;
-                }
-
-                // If online, lazy load GeoJSON for active layers to search locally
-                if (isApiOnline) {
-                    const pendingLoads = [];
-                    activeSources.forEach(id => {
-                        if (!loadedGeoJsonData[id]) {
-                            const item = allItems.find(i => i.id === id);
-                            if (item && item.geojson) {
-                                pendingLoads.push(
-                                    fetch(item.geojson)
-                                        .then(res => res.json())
-                                        .then(data => {
-                                            loadedGeoJsonData[id] = data;
-                                        })
-                                        .catch(err => console.error(`Error lazy loading ${id} for search`, err))
-                                );
-                            }
-                        }
-                    });
-
-                    if (pendingLoads.length > 0) {
-                        resultsList.innerHTML = `
-                            <div style="padding: 12px; font-size:12px; color:var(--text-secondary); text-align:center;">
-                                検索データを読み込み中...
-                            </div>
-                        `;
-                        searchSec.style.display = 'block';
-                        searchCountBadge.innerText = '...';
-                        await Promise.all(pendingLoads);
-                    }
-                }
-
-                // Search across loaded datasets
-                let results = [];
-
-                for (const [datasetId, geojson] of Object.entries(loadedGeoJsonData)) {
-                    // Only search active layers when online
-                    if (isApiOnline && !activeSources.has(datasetId)) continue;
-
-                    const item = allItems.find(i => i.id === datasetId);
-                    if (!geojson || !geojson.features) continue;
-
-                    geojson.features.forEach(feat => {
-                        const props = feat.properties;
-                        const name = props['名称'] || props['施設名'] || props['文化財名称'] || '';
-                        const address = props['所在地_連結表記'] || props['住所'] || props['所在地'] || '';
-                        
-                        if (name.toLowerCase().includes(query) || address.toLowerCase().includes(query)) {
-                            results.push({
-                                name,
-                                address,
-                                coordinates: feat.geometry.coordinates,
-                                feature: feat,
-                                datasetId,
-                                collection: item ? item.collection : ''
-                            });
-                        }
-                    });
-                }
-
-                // If nothing was loaded or no active layers, show a hint
-                if (Object.keys(loadedGeoJsonData).length === 0 || (isApiOnline && activeSources.size === 0)) {
-                    resultsList.innerHTML = `
-                        <div style="padding: 12px; font-size:12px; color:var(--text-secondary); text-align:center;">
-                            レイヤーを有効にすると、そのレイヤーをリアルタイムでテキスト検索できるようになります！
-                        </div>
-                    `;
-                    searchSec.style.display = 'block';
-                    searchCountBadge.innerText = '0';
-                    return;
-                }
-
-                // Render matching items
-                resultsList.innerHTML = '';
-                if (results.length === 0) {
-                    resultsList.innerHTML = `<div style="padding: 12px; font-size:12px; color:var(--text-secondary); text-align:center;">一致する施設が見つかりません。</div>`;
-                } else {
-                    // Limit to top 20 results for performance
-                    results.slice(0, 20).forEach(res => {
-                        const colColor = getCollectionColor(res.collection);
-                        const li = document.createElement('li');
-                        li.className = 'search-result-item';
-                        li.innerHTML = `
-                            <div style="display:flex; align-items:center; gap:8px;">
-                                <div style="width:6px; height:6px; border-radius:50%; background-color:${colColor};"></div>
-                                <span class="search-result-name">${res.name}</span>
-                            </div>
-                            <span class="search-result-detail">${res.address || '台東区内'}</span>
-                        `;
-                        li.onclick = () => {
-                            map.flyTo({
-                                center: res.coordinates,
-                                zoom: 17,
-                                duration: 1200
-                            });
-                            showPopup(res.feature, colColor, allItems.find(i => i.id === res.datasetId));
-                        };
-                        resultsList.appendChild(li);
-                    });
-                }
-
-                searchSec.style.display = 'block';
-                searchCountBadge.innerText = results.length;
-            };
-        }
-
-        // STAC BBox Query (Demonstrates STAC spatial capabilities via API `/search`)
-        async function runBboxSearch() {
-            if (!isApiOnline) {
-                alert('STAC APIサーバーがオフラインです。空間検索は現在オンラインモードのみ有効です。');
-                return;
-            }
-
-            const bounds = map.getBounds();
-            const minLon = bounds.getWest().toFixed(5);
-            const minLat = bounds.getSouth().toFixed(5);
-            const maxLon = bounds.getEast().toFixed(5);
-            const maxLat = bounds.getNorth().toFixed(5);
-
-            const bboxStr = `${minLon},${minLat},${maxLon},${maxLat}`;
-            
-            try {
-                // Fetch search items crossing current viewport from STAC API
-                const url = `${STAC_API_URL}/search?bbox=${bboxStr}&limit=50`;
-                const response = await fetch(url);
-                const data = await response.json();
-
-                const drawer = document.getElementById('spatial-drawer');
-                const list = document.getElementById('spatial-results-list');
-                list.innerHTML = '';
-
-                // Draw bounding boxes of found items on the map!
-                // Clear old bbox source & layer if exists
-                if (map.getLayer('search-bbox-layer')) map.removeLayer('search-bbox-layer');
-                if (map.getLayer('search-bbox-line-layer')) map.removeLayer('search-bbox-line-layer');
-                if (map.getSource('search-bbox')) map.removeSource('search-bbox');
-
-                if (data && data.features && data.features.length > 0) {
-                    const features = data.features;
-                    
-                    // Create features of bbox rectangles
-                    const bboxFeatures = features.map(item => {
-                        const [w, s, e, n] = item.bbox;
-                        return {
-                            type: 'Feature',
-                            properties: {
-                                title: item.properties.title,
-                                collection: item.collection
-                            },
-                            geometry: {
-                                type: 'Polygon',
-                                coordinates: [[
-                                    [w, s],
-                                    [e, s],
-                                    [e, n],
-                                    [w, n],
-                                    [w, s]
-                                ]]
-                            }
-                        };
-                    });
-
-                    // Add bounding boxes geometry to show spatial extent of matching STAC collections!
-                    map.addSource('search-bbox', {
-                        type: 'geojson',
-                        data: {
-                            type: 'FeatureCollection',
-                            features: bboxFeatures
-                        }
-                    });
-
-                    map.addLayer({
-                        id: 'search-bbox-layer',
-                        type: 'fill',
-                        source: 'search-bbox',
-                        paint: {
-                            'fill-color': 'var(--accent)',
-                            'fill-opacity': 0.08
-                        }
-                    });
-
-                    map.addLayer({
-                        id: 'search-bbox-line-layer',
-                        type: 'line',
-                        source: 'search-bbox',
-                        paint: {
-                            'line-color': 'var(--accent)',
-                            'line-width': 1.8,
-                            'line-dasharray': [3, 2]
-                        }
-                    });
-
-                    // Render list inside results drawer
-                    features.forEach(item => {
-                        const colColor = getCollectionColor(item.collection);
-                        const itemDiv = document.createElement('div');
-                        itemDiv.className = 'spatial-item';
-                        itemDiv.innerHTML = `
-                            <div class="spatial-item-title">${item.properties.title}</div>
-                            <div class="spatial-item-collection" style="color: ${colColor};">${item.collection}</div>
-                            <div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">
-                                更新日時: ${new Date(item.properties.datetime).toLocaleDateString()}
-                            </div>
-                        `;
-                        itemDiv.onclick = async () => {
-                            // Enable this dataset layer on the map!
-                            const assetGeojson = resolveGeoJsonUrl(item.assets.geojson.href);
-                            if (!activeSources.has(item.id)) {
-                                await toggleDataset(item.id, assetGeojson, colColor);
-                                renderLayers();
-                            } else {
-                                zoomToDataset(item.id);
-                            }
-                        };
-                        list.appendChild(itemDiv);
-                    });
-
-                    drawer.classList.add('active');
-                } else {
-                    list.innerHTML = `
-                        <div style="padding:16px; text-align:center; font-size:12px; color:var(--text-secondary);">
-                            この表示範囲には登録済みのSTAC Itemはありません。
-                        </div>
-                    `;
-                    drawer.classList.add('active');
-                }
-
-            } catch(e) {
-                console.error('Failed to execute STAC Spatial bbox search:', e);
-                alert('空間検索中にエラーが発生しました。STAC APIサーバーの状態を確認してください。');
-            }
-        }
-
-        // Register DOM Event Listeners
-        function registerUiEvents() {
-            // Floating style switcher
-            const styleBtns = document.querySelectorAll('.style-option-btn');
-            styleBtns.forEach(btn => {
-                btn.onclick = () => {
-                    styleBtns.forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-                    const styleKey = btn.getAttribute('data-style');
-                    
-                    // Switch base tile style cleanly
-                    map.setStyle(baseStyles[styleKey]);
-
-                    // MapLibre on style load needs to re-add existing custom layers and sources!
-                    map.once('style.load', () => {
-                        if (isApiOnline) {
-                            // Ensure vector tile source is added
-                            const tileUrl = STAC_API_URL.replace('/stac', '') + '/tiles/{z}/{x}/{y}';
-                            map.addSource('taito-mvt-source', {
-                                type: 'vector',
-                                tiles: [tileUrl],
-                                minzoom: 0,
-                                maxzoom: 18
-                            });
-                        }
-
-                        // Re-register Megurin Realtime if active
-                        if (isMegurinRealtimeActive) {
-                            const serverBase = STAC_API_URL.replace('/stac', '');
-                            
-                            // Re-register SDF image if not exists
-                            if (!map.getImage('megurin-square-sdf')) {
-                                const size = 32;
-                                const canvas = document.createElement('canvas');
-                                canvas.width = size;
-                                canvas.height = size;
-                                const ctx = canvas.getContext('2d');
-                                
-                                const radius = 6;
-                                const pad = 4;
-                                
-                                ctx.beginPath();
-                                ctx.moveTo(pad + radius, pad);
-                                ctx.lineTo(size - pad - radius, pad);
-                                ctx.quadraticCurveTo(size - pad, pad, size - pad, pad + radius);
-                                ctx.lineTo(size - pad, size - pad - radius);
-                                ctx.quadraticCurveTo(size - pad, size - pad, size - pad - radius, size - pad);
-                                ctx.lineTo(pad + radius, size - pad);
-                                ctx.quadraticCurveTo(pad, size - pad, pad, size - pad - radius);
-                                ctx.lineTo(pad, pad + radius);
-                                ctx.quadraticCurveTo(pad, pad, pad + radius, pad);
-                                ctx.closePath();
-                                
-                                ctx.fillStyle = '#000000';
-                                ctx.fill();
-                                
-                                const imgData = ctx.getImageData(0, 0, size, size);
-                                map.addImage('megurin-square-sdf', imgData, { sdf: true });
-                            }
-
-                            if (!map.getSource('megurin-realtime-source')) {
-                                map.addSource('megurin-realtime-source', {
-                                    type: 'geojson',
-                                    data: { type: 'FeatureCollection', features: [] }
-                                });
-                            }
-                            if (!map.getLayer('megurin-realtime-bus-layer')) {
-                                map.addLayer({
-                                    id: 'megurin-realtime-bus-layer',
-                                    type: 'symbol',
-                                    source: 'megurin-realtime-source',
-                                    layout: {
-                                        'icon-image': 'megurin-square-sdf',
-                                        'icon-size': [
-                                            'interpolate',
-                                            ['linear'],
-                                            ['zoom'],
-                                            10, 0.4,
-                                            14, 0.7,
-                                            18, 1.0
-                                        ],
-                                        'icon-allow-overlap': true,
-                                        'icon-ignore-placement': true
-                                    },
-                                    paint: {
-                                        'icon-color': ['coalesce', ['get', 'route_color'], '#4f46e5'],
-                                        'icon-halo-color': '#ffffff',
-                                        'icon-halo-width': 2.5
-                                    }
-                                });
-                            }
-                            if (!map.getLayer('megurin-realtime-label-layer')) {
-                                map.addLayer({
-                                    id: 'megurin-realtime-label-layer',
-                                    type: 'symbol',
-                                    source: 'megurin-realtime-source',
-                                    layout: {
-                                        'text-field': ['get', 'route_name'],
-                                        'text-size': 11,
-                                        'text-offset': [0, 1.6],
-                                        'text-anchor': 'top',
-                                        'text-allow-overlap': true,
-                                        'text-ignore-placement': true
-                                    },
-                                    paint: {
-                                        'text-color': '#ffffff',
-                                        'text-halo-color': 'rgba(8, 12, 20, 0.9)',
-                                        'text-halo-width': 2.0
-                                    }
-                                });
-                            }
-                            
-                            // Immediately fetch and draw coordinates after layer re-addition (prevents flicker on style change)
-                            updateMegurinPositions();
-                        }
-
-                        // Re-register all currently active sources and layers!
-                        activeSources.forEach(async (id) => {
-                            const item = allItems.find(i => i.id === id);
-                            const color = getCollectionColor(item ? item.collection : '');
-                            
-                            if (isApiOnline) {
-                                if (!map.getLayer(`${id}-layer`)) {
-                                    map.addLayer({
-                                        id: `${id}-layer`,
-                                        type: 'circle',
-                                        source: 'taito-mvt-source',
-                                        'source-layer': 'geojsonLayer',
-                                        filter: ['==', ['get', 'dataset_id'], id],
-                                        paint: {
-                                            'circle-radius': [
-                                                'interpolate',
-                                                ['linear'],
-                                                ['zoom'],
-                                                10, 4,
-                                                14, 7,
-                                                18, 12
-                                            ],
-                                            'circle-color': color,
-                                            'circle-stroke-width': 1.8,
-                                            'circle-stroke-color': '#ffffff',
-                                            'circle-opacity': 0.85
-                                        }
-                                    });
-                                }
-                            } else {
-                                const geojsonData = loadedGeoJsonData[id];
-                                if (geojsonData) {
-                                    if (!map.getSource(id)) {
-                                        map.addSource(id, {
-                                            type: 'geojson',
-                                            data: geojsonData
-                                        });
-                                    }
-                                    if (!map.getLayer(`${id}-layer`)) {
-                                        map.addLayer({
-                                            id: `${id}-layer`,
-                                            type: 'circle',
-                                            source: id,
-                                            paint: {
-                                                'circle-radius': [
-                                                    'interpolate',
-                                                    ['linear'],
-                                                    ['zoom'],
-                                                    10, 4,
-                                                    14, 7,
-                                                    18, 12
-                                                ],
-                                                'circle-color': color,
-                                                'circle-stroke-width': 1.8,
-                                                'circle-stroke-color': '#ffffff',
-                                                'circle-opacity': 0.85
-                                            }
-                                        });
-                                    }
-                                }
-                            }
-                        });
-                    });
-                };
-            });
-
-            // Quick Eye action: Clear all layers
-            document.getElementById('btn-clear').onclick = () => {
-                const idsToRemove = Array.from(activeSources);
-                idsToRemove.forEach(id => {
-                    if (map.getLayer(`${id}-layer`)) map.removeLayer(`${id}-layer`);
-                    if (map.getSource(id)) map.removeSource(id);
-                    activeSources.delete(id);
-                });
-                renderLayers();
-            };
-
-            // Quick Eye action: Toggle all target layers
-            document.getElementById('btn-all').onclick = async () => {
-                for (const item of allItems) {
-                    if (!activeSources.has(item.id)) {
-                        const colColor = getCollectionColor(item.collection);
-                        await toggleDataset(item.id, item.geojson, colColor, false);
-                    }
-                }
-                renderLayers();
-            };
-
-            // Spatial Search triggers
-            document.getElementById('btn-bbox-search').onclick = runBboxSearch;
-
-            // Toggle Tile Boundaries (debugging grid helper)
-            const tileBoundsBtn = document.getElementById('btn-tile-boundaries');
-            tileBoundsBtn.onclick = () => {
-                const isShowing = map.showTileBoundaries;
-                map.showTileBoundaries = !isShowing;
-                tileBoundsBtn.classList.toggle('active', !isShowing);
-            };
-            document.getElementById('spatial-close-btn').onclick = () => {
-                document.getElementById('spatial-drawer').classList.remove('active');
-                // Remove visual bbox glowing borders on map
-                if (map.getLayer('search-bbox-layer')) map.removeLayer('search-bbox-layer');
-                if (map.getLayer('search-bbox-line-layer')) map.removeLayer('search-bbox-line-layer');
-                if (map.getSource('search-bbox')) map.removeSource('search-bbox');
-            };
-
-            // Mobile view drawer toggle
-            const sidebar = document.getElementById('sidebar');
-            const mobileBtn = document.getElementById('mobile-sidebar-toggle');
-            const mobileIcon = document.getElementById('mobile-toggle-icon');
-
-            mobileBtn.onclick = () => {
-                sidebar.classList.toggle('active');
-                if (sidebar.classList.contains('active')) {
-                    mobileIcon.setAttribute('data-lucide', 'x');
-                } else {
-                    mobileIcon.setAttribute('data-lucide', 'menu');
-                }
-                lucide.createIcons();
-            };
-        }
-
-        // Global Bootstrapper
-        window.onload = async () => {
-            // 1. Fetch dynamic metadata
-            await fetchCatalogAndLoad();
-            
-            // 2. Load MapLibre
-            initMap();
-            
-            // 3. Register Search filter
-            initSearch();
-
-            // 3.5. Register Megurin Simulator UI
-            initMegurinRealtimeUI();
-            
-            // 4. Connect general clicks
-            registerUiEvents();
-            
-            // Render icons
-            lucide.createIcons();
-        };
-    </script>
+    <div id="megurin-section">
+      <h2>めぐりん リアルタイム</h2>
+      <div class="megurin-row">
+        <span class="megurin-label">バス表示</span>
+        <span id="bus-count"></span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="megurin-toggle">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+      <div id="sim-controls">
+        <div class="sim-row">
+          <span style="font-size:11px;color:#64748b">時刻</span>
+          <input type="range" id="sim-time-slider" min="21600" max="75600" step="60" value="43200">
+          <span id="sim-time-display">12:00:00</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="collections-scroll">
+      <div id="collections-container"></div>
+    </div>
+  </div>
+
+  <div id="map"></div>
+  <div id="map-overlay">
+    <button class="overlay-btn active" id="btn-tile-boundaries">タイル境界</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+const STAC_API = 'https://poc-stac-tokyo-taito.yuiseki.com/stac';
+const TILE_API = 'https://poc-stac-tokyo-taito.yuiseki.com';
+const BASE_STYLE = 'https://tile.yuiseki.net/styles/osm-fiord/style.json';
+
+const COLLECTION_COLORS = {
+  'sports': '#f59e0b', 'kodomo-kyoiku': '#ec4899', 'bunka-geijutsu': '#a78bfa',
+  'kurashi-sumai': '#34d399', 'kenko-iryo': '#f87171', 'kanko': '#38bdf8', 'infra': '#fb923c',
+};
+function colColor(id) { return COLLECTION_COLORS[id] || '#94a3b8'; }
+
+// --- State ---
+let map;
+let allItems = {};       // itemId → item
+let allCollections = []; // collection objects
+let activeDatasets = new Set();
+let megurinActive = false;
+let megurinTimer = null;
+let simMode = 'realtime';
+
+// --- Map init ---
+function initMap() {
+  map = new maplibregl.Map({
+    container: 'map',
+    style: BASE_STYLE,
+    center: [139.7810, 35.7138],
+    zoom: 13.5,
+  });
+  map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+  map.on('style.load', () => {
+    map.showTileBoundaries = true;
+    addMvtSource();
+    readdActiveDatasets();
+    if (megurinActive) setupMegurinLayers();
+  });
+}
+
+// --- MVT source ---
+function addMvtSource() {
+  if (!map.getSource('taito-mvt')) {
+    map.addSource('taito-mvt', {
+      type: 'vector',
+      tiles: [`${TILE_API}/tiles/{z}/{x}/{y}`],
+      minzoom: 0, maxzoom: 18,
+    });
+  }
+}
+
+function readdActiveDatasets() {
+  for (const id of activeDatasets) addDatasetLayer(id);
+}
+
+// --- Dataset layers ---
+function addDatasetLayer(itemId) {
+  if (!map.getSource('taito-mvt')) addMvtSource();
+  const layerId = `ds-${itemId}`;
+  if (map.getLayer(layerId)) return;
+  const item = allItems[itemId];
+  const color = colColor(item?.collection);
+  map.addLayer({
+    id: layerId,
+    type: 'circle',
+    source: 'taito-mvt',
+    'source-layer': 'geojsonLayer',
+    filter: ['==', ['get', 'dataset_id'], itemId],
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 3, 14, 6, 18, 10],
+      'circle-color': color,
+      'circle-opacity': 0.85,
+      'circle-stroke-width': 1,
+      'circle-stroke-color': '#fff',
+    },
+  });
+  map.on('click', layerId, (e) => showPopup(e.features[0], e.lngLat));
+  map.on('mouseenter', layerId, () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', layerId, () => { map.getCanvas().style.cursor = ''; });
+}
+
+function removeDatasetLayer(itemId) {
+  const layerId = `ds-${itemId}`;
+  if (map.getLayer(layerId)) map.removeLayer(layerId);
+}
+
+function toggleDataset(itemId, el) {
+  if (activeDatasets.has(itemId)) {
+    activeDatasets.delete(itemId);
+    removeDatasetLayer(itemId);
+    el.classList.remove('active');
+  } else {
+    activeDatasets.add(itemId);
+    addDatasetLayer(itemId);
+    el.classList.add('active');
+  }
+}
+
+// --- Popup ---
+const SKIP_KEYS = new Set(['dataset_id', 'collection_id', 'dataset_title', 'original_id', 'id']);
+function showPopup(feature, lngLat) {
+  const props = feature.properties;
+  const title = props['名称'] || props['施設名'] || props['文化財名称'] || props['dataset_title'] || '';
+  let html = title ? `<div class="popup-title">${title}</div>` : '';
+  for (const [k, v] of Object.entries(props)) {
+    if (SKIP_KEYS.has(k) || v == null || v === '' || k === '名称') continue;
+    html += `<div class="popup-row"><span class="popup-key">${k}</span><span class="popup-val">${v}</span></div>`;
+  }
+  new maplibregl.Popup({ closeButton: true, maxWidth: '300px' })
+    .setLngLat(lngLat)
+    .setHTML(html)
+    .addTo(map);
+}
+
+// --- Sidebar render ---
+function renderSidebar() {
+  const container = document.getElementById('collections-container');
+  container.innerHTML = '';
+
+  for (const col of allCollections) {
+    const items = Object.values(allItems).filter(i => i.collection === col.id);
+    if (!items.length) continue;
+    const color = colColor(col.id);
+
+    const group = document.createElement('div');
+    group.className = 'col-group';
+
+    const header = document.createElement('div');
+    header.className = 'col-header';
+    header.innerHTML = `
+      <span class="dataset-dot" style="background:${color}"></span>
+      <span>${col.title || col.id}</span>
+      <span class="col-caret">▶</span>`;
+
+    const itemList = document.createElement('div');
+    itemList.className = 'col-items';
+
+    header.onclick = () => {
+      const open = itemList.classList.toggle('open');
+      header.querySelector('.col-caret').classList.toggle('open', open);
+    };
+
+    for (const item of items) {
+      const el = document.createElement('div');
+      el.className = 'dataset-item';
+      el.id = `ds-item-${item.id}`;
+      el.innerHTML = `<span class="dataset-dot" style="background:${color}"></span>${item.properties?.title || item.id}`;
+      el.onclick = () => toggleDataset(item.id, el);
+      itemList.appendChild(el);
+    }
+
+    group.appendChild(header);
+    group.appendChild(itemList);
+    container.appendChild(group);
+  }
+}
+
+// --- STAC API fetch ---
+async function fetchStac() {
+  const dot = document.getElementById('status-dot');
+  const txt = document.getElementById('status-text');
+  try {
+    const colsRes = await fetch(`${STAC_API}/collections`, { signal: AbortSignal.timeout(4000) });
+    if (!colsRes.ok) throw new Error(`HTTP ${colsRes.status}`);
+    const colsData = await colsRes.json();
+    allCollections = colsData.collections || [];
+
+    for (const col of allCollections) {
+      const itemsRes = await fetch(`${STAC_API}/collections/${col.id}/items?limit=100`);
+      const itemsData = await itemsRes.json();
+      for (const item of (itemsData.features || [])) {
+        allItems[item.id] = item;
+      }
+    }
+
+    dot.className = 'online';
+    txt.textContent = `オンライン — ${allCollections.length} コレクション`;
+    renderSidebar();
+  } catch (e) {
+    dot.className = 'error';
+    txt.textContent = 'API オフライン';
+    console.error('STAC fetch failed:', e);
+  }
+}
+
+// --- Megurin bus ---
+function secsNow() {
+  const n = new Date();
+  return n.getHours() * 3600 + n.getMinutes() * 60 + n.getSeconds();
+}
+function secsToHms(s) {
+  const h = String(Math.floor(s / 3600)).padStart(2, '0');
+  const m = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return `${h}:${m}:${ss}`;
+}
+
+function setupMegurinLayers() {
+  if (!map.hasImage('megurin-sq')) {
+    const size = 32;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const r = 5, p = 4;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.moveTo(p + r, p);
+    ctx.lineTo(size - p - r, p);
+    ctx.quadraticCurveTo(size - p, p, size - p, p + r);
+    ctx.lineTo(size - p, size - p - r);
+    ctx.quadraticCurveTo(size - p, size - p, size - p - r, size - p);
+    ctx.lineTo(p + r, size - p);
+    ctx.quadraticCurveTo(p, size - p, p, size - p - r);
+    ctx.lineTo(p, p + r);
+    ctx.quadraticCurveTo(p, p, p + r, p);
+    ctx.closePath();
+    ctx.fill();
+    map.addImage('megurin-sq', ctx.getImageData(0, 0, size, size), { sdf: true });
+  }
+
+  if (!map.getSource('megurin')) {
+    map.addSource('megurin', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  }
+  if (!map.getLayer('megurin-bus')) {
+    map.addLayer({
+      id: 'megurin-bus',
+      type: 'symbol',
+      source: 'megurin',
+      layout: {
+        'icon-image': 'megurin-sq',
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.4, 14, 0.7, 18, 1.0],
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
+      paint: {
+        'icon-color': ['coalesce', ['get', 'route_color'], '#4f46e5'],
+        'icon-halo-color': '#fff',
+        'icon-halo-width': 2.5,
+      },
+    });
+  }
+  if (!map.getLayer('megurin-label')) {
+    map.addLayer({
+      id: 'megurin-label',
+      type: 'symbol',
+      source: 'megurin',
+      layout: {
+        'text-field': ['get', 'route_name'],
+        'text-size': 11,
+        'text-offset': [0, 1.6],
+        'text-allow-overlap': true,
+      },
+      paint: {
+        'text-color': '#fff',
+        'text-halo-color': '#1e293b',
+        'text-halo-width': 1.5,
+      },
+    });
+  }
+}
+
+function removeMegurinLayers() {
+  ['megurin-label', 'megurin-bus'].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+  if (map.getSource('megurin')) map.removeSource('megurin');
+}
+
+async function updateMegurin() {
+  const secs = simMode === 'custom'
+    ? parseInt(document.getElementById('sim-time-slider').value)
+    : secsNow();
+
+  try {
+    const res = await fetch(`${TILE_API}/state/buses?seconds=${secs}`);
+    if (!res.ok) return;
+    const geojson = await res.json();
+    const src = map.getSource('megurin');
+    if (src) src.setData(geojson);
+    const count = (geojson.features || []).length;
+    document.getElementById('bus-count').textContent = count ? `${count}台` : '';
+  } catch { /* ignore */ }
+}
+
+function startMegurin() {
+  setupMegurinLayers();
+  updateMegurin();
+  megurinTimer = setInterval(updateMegurin, simMode === 'custom' ? 5000 : 1500);
+}
+
+function stopMegurin() {
+  clearInterval(megurinTimer);
+  megurinTimer = null;
+  removeMegurinLayers();
+  document.getElementById('bus-count').textContent = '';
+}
+
+// --- Init ---
+window.addEventListener('load', () => {
+  initMap();
+  fetchStac();
+
+  // Tile boundaries toggle (default ON)
+  const tileBtn = document.getElementById('btn-tile-boundaries');
+  tileBtn.onclick = () => {
+    map.showTileBoundaries = !map.showTileBoundaries;
+    tileBtn.classList.toggle('active', map.showTileBoundaries);
+  };
+
+  // Megurin toggle (default ON after map loads)
+  const toggle = document.getElementById('megurin-toggle');
+  const simControls = document.getElementById('sim-controls');
+
+  map.once('style.load', () => {
+    // Auto-start megurin
+    toggle.checked = true;
+    megurinActive = true;
+    simControls.classList.add('visible');
+    startMegurin();
+  });
+
+  toggle.onchange = () => {
+    megurinActive = toggle.checked;
+    simControls.classList.toggle('visible', megurinActive);
+    if (megurinActive) startMegurin(); else stopMegurin();
+  };
+
+  // Simulation mode: realtime when slider at default, custom when dragged
+  const slider = document.getElementById('sim-time-slider');
+  const display = document.getElementById('sim-time-display');
+  slider.oninput = () => {
+    simMode = 'custom';
+    display.textContent = secsToHms(parseInt(slider.value));
+    clearInterval(megurinTimer);
+    megurinTimer = setInterval(updateMegurin, 5000);
+    updateMegurin();
+  };
+
+  // Keep realtime display updated
+  setInterval(() => {
+    if (simMode === 'realtime') display.textContent = secsToHms(secsNow());
+  }, 1000);
+});
+</script>
 </body>
 </html>
