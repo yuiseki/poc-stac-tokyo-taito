@@ -181,6 +181,30 @@ let megurinActive = false;
 let megurinTimer = null;
 let simMode = 'realtime';
 
+// Current simulation time (seconds from midnight) — read by the protocol handler
+let stateTileSecs = 0;
+
+// Register custom protocol: stateTile://z/x/y
+// The handler fetches the real MVT endpoint with the current stateTileSecs value
+// and returns a short TTL so MapLibre auto-revalidates using stale-while-revalidate,
+// avoiding setTiles() which would disrupt the render loop.
+maplibregl.addProtocol('stateTile', async (params, abortController) => {
+  const [, path] = params.url.split('://');
+  const [z, x, y] = path.split('/').map(Number);
+  try {
+    const resp = await fetch(
+      `${TILE_API}/state/${z}/${x}/${y}?seconds=${stateTileSecs}`,
+      { signal: abortController.signal }
+    );
+    if (!resp.ok) return { data: new ArrayBuffer(0) };
+    const data = await resp.arrayBuffer();
+    // Short TTL: MapLibre keeps old tile visible while re-fetching the next state
+    return { data, expires: new Date(Date.now() + 1500) };
+  } catch {
+    return { data: new ArrayBuffer(0) };
+  }
+});
+
 // --- Map init ---
 function initMap() {
   map = new maplibregl.Map({
@@ -222,7 +246,8 @@ function addDatasetLayer(itemId) {
   const item = allItems[itemId];
   const color = colColor(item?.collection);
   // insert below megurin layers so stacking order is: STAC < megurin < tile boundaries
-  const beforeId = map.getLayer('megurin-bus') ? 'megurin-bus' : undefined;
+  const megurinRef = map.getLayer('megurin-bus') ? 'megurin-bus' : undefined;
+  const beforeId = megurinRef || undefined;
   map.addLayer({
     id: layerId,
     type: 'circle',
@@ -361,92 +386,88 @@ function secsToHms(s) {
   return `${h}:${m}:${ss}`;
 }
 
-function setupMegurinLayers() {
-  if (!map.hasImage('megurin-sq')) {
-    const size = 32;
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    const r = 5, p = 4;
-    ctx.fillStyle = '#000';
-    ctx.beginPath();
-    ctx.moveTo(p + r, p);
-    ctx.lineTo(size - p - r, p);
-    ctx.quadraticCurveTo(size - p, p, size - p, p + r);
-    ctx.lineTo(size - p, size - p - r);
-    ctx.quadraticCurveTo(size - p, size - p, size - p - r, size - p);
-    ctx.lineTo(p + r, size - p);
-    ctx.quadraticCurveTo(p, size - p, p, size - p - r);
-    ctx.lineTo(p, p + r);
-    ctx.quadraticCurveTo(p, p, p + r, p);
-    ctx.closePath();
-    ctx.fill();
-    map.addImage('megurin-sq', ctx.getImageData(0, 0, size, size), { sdf: true });
-  }
+function makeMegurinIcon() {
+  if (map.hasImage('megurin-sq')) return;
+  const size = 32;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const r = 5, p = 4;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.moveTo(p + r, p); ctx.lineTo(size - p - r, p);
+  ctx.quadraticCurveTo(size - p, p, size - p, p + r);
+  ctx.lineTo(size - p, size - p - r);
+  ctx.quadraticCurveTo(size - p, size - p, size - p - r, size - p);
+  ctx.lineTo(p + r, size - p);
+  ctx.quadraticCurveTo(p, size - p, p, size - p - r);
+  ctx.lineTo(p, p + r);
+  ctx.quadraticCurveTo(p, p, p + r, p);
+  ctx.closePath(); ctx.fill();
+  map.addImage('megurin-sq', ctx.getImageData(0, 0, size, size), { sdf: true });
+}
 
+function setupMegurinLayers() {
+  makeMegurinIcon();
   if (!map.getSource('megurin')) {
-    map.addSource('megurin', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addSource('megurin', {
+      type: 'vector',
+      tiles: ['stateTile://{z}/{x}/{y}'],
+      minzoom: 0, maxzoom: 18,
+    });
   }
   if (!map.getLayer('megurin-bus')) {
     map.addLayer({
-      id: 'megurin-bus',
-      type: 'symbol',
-      source: 'megurin',
+      id: 'megurin-bus', type: 'symbol',
+      source: 'megurin', 'source-layer': 'geojsonLayer',
       layout: {
         'icon-image': 'megurin-sq',
         'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.4, 14, 0.7, 18, 1.0],
-        'icon-allow-overlap': true,
-        'icon-ignore-placement': true,
+        'icon-allow-overlap': true, 'icon-ignore-placement': true,
       },
       paint: {
         'icon-color': ['coalesce', ['get', 'route_color'], '#4f46e5'],
-        'icon-halo-color': '#fff',
-        'icon-halo-width': 2.5,
+        'icon-halo-color': '#fff', 'icon-halo-width': 2.5,
       },
     });
   }
   if (!map.getLayer('megurin-label')) {
     map.addLayer({
-      id: 'megurin-label',
-      type: 'symbol',
-      source: 'megurin',
+      id: 'megurin-label', type: 'symbol',
+      source: 'megurin', 'source-layer': 'geojsonLayer',
       layout: {
-        'text-field': ['get', 'route_name'],
-        'text-size': 11,
-        'text-offset': [0, 1.6],
-        'text-allow-overlap': true,
+        'text-field': ['get', 'route_name'], 'text-size': 11,
+        'text-offset': [0, 1.6], 'text-allow-overlap': true,
       },
-      paint: {
-        'text-color': '#fff',
-        'text-halo-color': '#1e293b',
-        'text-halo-width': 1.5,
-      },
+      paint: { 'text-color': '#fff', 'text-halo-color': '#1e293b', 'text-halo-width': 1.5 },
     });
   }
 }
 
 function removeMegurinLayers() {
-  ['megurin-label', 'megurin-bus'].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+  ['megurin-label', 'megurin-bus'].forEach(id => {
+    if (map.getLayer(id)) map.removeLayer(id);
+  });
   if (map.getSource('megurin')) map.removeSource('megurin');
 }
 
-async function updateMegurin() {
-  const secs = simMode === 'custom'
+// Update stateTileSecs — the protocol handler reads this on every tile (re-)fetch.
+// No setTiles() needed: MapLibre auto-revalidates tiles when their TTL (1.5s) expires.
+function updateMegurin() {
+  if (!megurinActive) return;
+  stateTileSecs = simMode === 'custom'
     ? parseInt(document.getElementById('sim-time-slider').value)
     : secsNow();
-
-  try {
-    const res = await fetch(`${TILE_API}/state/buses?seconds=${secs}`);
-    if (!res.ok) return;
-    const geojson = await res.json();
-    const src = map.getSource('megurin');
-    if (src) src.setData(geojson);
-    const count = (geojson.features || []).length;
-    document.getElementById('bus-count').textContent = count ? `${count}台` : '';
-  } catch { /* ignore */ }
+  // Reflect current feature count from rendered tiles
+  const feats = map.querySourceFeatures('megurin', { sourceLayer: 'geojsonLayer' });
+  const uniq = new Set(feats.map(f => JSON.stringify(f.geometry?.coordinates)));
+  document.getElementById('bus-count').textContent = uniq.size ? `${uniq.size} 台` : '';
 }
 
 function startMegurin() {
+  stateTileSecs = simMode === 'custom'
+    ? parseInt(document.getElementById('sim-time-slider').value)
+    : secsNow();
   setupMegurinLayers();
   updateMegurin();
   megurinTimer = setInterval(updateMegurin, simMode === 'custom' ? 5000 : 1500);
