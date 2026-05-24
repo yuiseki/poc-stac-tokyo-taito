@@ -150,6 +150,7 @@
           <span style="font-size:11px;color:#64748b">速度</span>
           <button class="speed-btn active" id="btn-speed-1x">1x</button>
           <button class="speed-btn" id="btn-speed-3x">3x</button>
+          <button class="speed-btn" id="btn-speed-10x">10x</button>
         </div>
         <div class="sim-row">
           <span style="font-size:11px;color:#64748b">時刻</span>
@@ -546,11 +547,13 @@ window.addEventListener('load', () => {
     simRefSecs = stateTileSecs || secsNow();
     document.getElementById('btn-speed-1x').classList.toggle('active', speed === 1);
     document.getElementById('btn-speed-3x').classList.toggle('active', speed === 3);
+    document.getElementById('btn-speed-10x').classList.toggle('active', speed === 10);
     // If slider was customized, stay in custom mode; otherwise go realtime-based
     if (simMode !== 'custom') simMode = 'realtime';
   }
   document.getElementById('btn-speed-1x').onclick = () => setSpeed(1);
   document.getElementById('btn-speed-3x').onclick = () => setSpeed(3);
+  document.getElementById('btn-speed-10x').onclick = () => setSpeed(10);
 
   // Keep realtime display updated
   setInterval(() => {
