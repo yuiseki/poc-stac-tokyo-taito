@@ -180,6 +180,8 @@ let activeDatasets = new Set();
 let megurinActive = false;
 let megurinTimer = null;
 let simMode = 'realtime';
+// double-buffer state
+let megurinSlot = 'a'; // 'a' | 'b'  currently visible slot
 
 // --- Map init ---
 function initMap() {
@@ -361,89 +363,114 @@ function secsToHms(s) {
   return `${h}:${m}:${ss}`;
 }
 
-function setupMegurinLayers() {
-  if (!map.hasImage('megurin-sq')) {
-    const size = 32;
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    const r = 5, p = 4;
-    ctx.fillStyle = '#000';
-    ctx.beginPath();
-    ctx.moveTo(p + r, p);
-    ctx.lineTo(size - p - r, p);
-    ctx.quadraticCurveTo(size - p, p, size - p, p + r);
-    ctx.lineTo(size - p, size - p - r);
-    ctx.quadraticCurveTo(size - p, size - p, size - p - r, size - p);
-    ctx.lineTo(p + r, size - p);
-    ctx.quadraticCurveTo(p, size - p, p, size - p - r);
-    ctx.lineTo(p, p + r);
-    ctx.quadraticCurveTo(p, p, p + r, p);
-    ctx.closePath();
-    ctx.fill();
-    map.addImage('megurin-sq', ctx.getImageData(0, 0, size, size), { sdf: true });
-  }
+function makeMegurinIcon() {
+  if (map.hasImage('megurin-sq')) return;
+  const size = 32;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const r = 5, p = 4;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.moveTo(p + r, p); ctx.lineTo(size - p - r, p);
+  ctx.quadraticCurveTo(size - p, p, size - p, p + r);
+  ctx.lineTo(size - p, size - p - r);
+  ctx.quadraticCurveTo(size - p, size - p, size - p - r, size - p);
+  ctx.lineTo(p + r, size - p);
+  ctx.quadraticCurveTo(p, size - p, p, size - p - r);
+  ctx.lineTo(p, p + r);
+  ctx.quadraticCurveTo(p, p, p + r, p);
+  ctx.closePath(); ctx.fill();
+  map.addImage('megurin-sq', ctx.getImageData(0, 0, size, size), { sdf: true });
+}
 
-  if (!map.getSource('megurin')) {
-    map.addSource('megurin', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  }
-  if (!map.getLayer('megurin-bus')) {
+function addMegurinSlotLayers(slot) {
+  const src = `megurin-${slot}`;
+  const busId = `megurin-${slot}-bus`;
+  const lblId = `megurin-${slot}-label`;
+  if (!map.getLayer(busId)) {
     map.addLayer({
-      id: 'megurin-bus',
-      type: 'symbol',
-      source: 'megurin',
+      id: busId, type: 'symbol', source: src, 'source-layer': 'geojsonLayer',
       layout: {
         'icon-image': 'megurin-sq',
         'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.4, 14, 0.7, 18, 1.0],
-        'icon-allow-overlap': true,
-        'icon-ignore-placement': true,
+        'icon-allow-overlap': true, 'icon-ignore-placement': true,
       },
       paint: {
         'icon-color': ['coalesce', ['get', 'route_color'], '#4f46e5'],
-        'icon-halo-color': '#fff',
-        'icon-halo-width': 2.5,
+        'icon-halo-color': '#fff', 'icon-halo-width': 2.5,
       },
     });
   }
-  if (!map.getLayer('megurin-label')) {
+  if (!map.getLayer(lblId)) {
     map.addLayer({
-      id: 'megurin-label',
-      type: 'symbol',
-      source: 'megurin',
+      id: lblId, type: 'symbol', source: src, 'source-layer': 'geojsonLayer',
       layout: {
-        'text-field': ['get', 'route_name'],
-        'text-size': 11,
-        'text-offset': [0, 1.6],
-        'text-allow-overlap': true,
+        'text-field': ['get', 'route_name'], 'text-size': 11,
+        'text-offset': [0, 1.6], 'text-allow-overlap': true,
       },
-      paint: {
-        'text-color': '#fff',
-        'text-halo-color': '#1e293b',
-        'text-halo-width': 1.5,
-      },
+      paint: { 'text-color': '#fff', 'text-halo-color': '#1e293b', 'text-halo-width': 1.5 },
     });
   }
+}
+
+function setSlotVisibility(slot, visible) {
+  const v = visible ? 'visible' : 'none';
+  [`megurin-${slot}-bus`, `megurin-${slot}-label`].forEach(id => {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v);
+  });
+}
+
+function setupMegurinLayers() {
+  makeMegurinIcon();
+  // initialise both slots as hidden vector sources
+  for (const slot of ['a', 'b']) {
+    if (!map.getSource(`megurin-${slot}`)) {
+      map.addSource(`megurin-${slot}`, {
+        type: 'vector',
+        tiles: [`${TILE_API}/state/{z}/{x}/{y}?t=0`],
+        minzoom: 0, maxzoom: 18,
+      });
+    }
+    addMegurinSlotLayers(slot);
+    setSlotVisibility(slot, false);
+  }
+  // show the active slot immediately
+  setSlotVisibility(megurinSlot, true);
 }
 
 function removeMegurinLayers() {
-  ['megurin-label', 'megurin-bus'].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
-  if (map.getSource('megurin')) map.removeSource('megurin');
+  for (const slot of ['a', 'b']) {
+    [`megurin-${slot}-label`, `megurin-${slot}-bus`].forEach(id => {
+      if (map.getLayer(id)) map.removeLayer(id);
+    });
+    if (map.getSource(`megurin-${slot}`)) map.removeSource(`megurin-${slot}`);
+  }
 }
 
-async function updateMegurin() {
+function updateMegurin() {
+  if (!megurinActive) return;
   const secs = simMode === 'custom'
     ? parseInt(document.getElementById('sim-time-slider').value)
     : secsNow();
 
-  try {
-    const res = await fetch(`${TILE_API}/state/buses?seconds=${secs}`);
-    if (!res.ok) return;
-    const geojson = await res.json();
-    const src = map.getSource('megurin');
-    if (src) src.setData(geojson);
-    const count = (geojson.features || []).length;
-    document.getElementById('bus-count').textContent = count ? `${count}台` : '';
-  } catch { /* ignore */ }
+  const nextSlot = megurinSlot === 'a' ? 'b' : 'a';
+  const nextSrc = `megurin-${nextSlot}`;
+  const url = `${TILE_API}/state/{z}/{x}/{y}?seconds=${secs}&t=${Date.now()}`;
+
+  // load into the hidden slot
+  map.getSource(nextSrc).setTiles([url]);
+
+  // wait for the hidden slot's tiles to finish loading, then flip
+  const onSourceData = (e) => {
+    if (e.sourceId !== nextSrc || !e.isSourceLoaded) return;
+    map.off('sourcedata', onSourceData);
+
+    setSlotVisibility(nextSlot, true);
+    setSlotVisibility(megurinSlot, false);
+    megurinSlot = nextSlot;
+  };
+  map.on('sourcedata', onSourceData);
 }
 
 function startMegurin() {
