@@ -161,6 +161,8 @@
 </div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pbf@3.3.0/dist/pbf.js"></script>
+<script src="https://unpkg.com/@mapbox/vector-tile@1.3.1/dist/vector-tile.js"></script>
 <script>
 const STAC_API = 'https://poc-stac-tokyo-taito.yuiseki.com/stac';
 const TILE_API = 'https://poc-stac-tokyo-taito.yuiseki.com';
@@ -180,8 +182,6 @@ let activeDatasets = new Set();
 let megurinActive = false;
 let megurinTimer = null;
 let simMode = 'realtime';
-// double-buffer state
-let megurinSlot = 'a'; // 'a' | 'b'  currently visible slot
 
 // --- Map init ---
 function initMap() {
@@ -224,7 +224,7 @@ function addDatasetLayer(itemId) {
   const item = allItems[itemId];
   const color = colColor(item?.collection);
   // insert below megurin layers so stacking order is: STAC < megurin < tile boundaries
-  const megurinRef = [`megurin-a-bus`, `megurin-b-bus`].find(id => map.getLayer(id));
+  const megurinRef = map.getLayer('megurin-bus') ? 'megurin-bus' : undefined;
   const beforeId = megurinRef || undefined;
   map.addLayer({
     id: layerId,
@@ -385,13 +385,60 @@ function makeMegurinIcon() {
   map.addImage('megurin-sq', ctx.getImageData(0, 0, size, size), { sdf: true });
 }
 
-function addMegurinSlotLayers(slot) {
-  const src = `megurin-${slot}`;
-  const busId = `megurin-${slot}-bus`;
-  const lblId = `megurin-${slot}-label`;
-  if (!map.getLayer(busId)) {
+// Calculate tiles covering the current viewport at a given zoom level
+function getViewportTiles(zoom) {
+  function lon2tile(lon, z) {
+    return Math.floor((lon + 180) / 360 * (1 << z));
+  }
+  function lat2tile(lat, z) {
+    const rad = lat * Math.PI / 180;
+    return Math.floor((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2 * (1 << z));
+  }
+  const b = map.getBounds();
+  const x0 = lon2tile(b.getWest(), zoom), x1 = lon2tile(b.getEast(), zoom);
+  const y0 = lat2tile(b.getNorth(), zoom), y1 = lat2tile(b.getSouth(), zoom);
+  const tiles = [];
+  for (let x = x0; x <= x1; x++)
+    for (let y = y0; y <= y1; y++)
+      tiles.push({ z: zoom, x, y });
+  return tiles;
+}
+
+// Fetch MVT state tiles, decode with @mapbox/vector-tile, return GeoJSON FeatureCollection
+async function fetchMegurinAsGeoJSON(secs) {
+  const FETCH_ZOOM = 12;
+  const tiles = getViewportTiles(FETCH_ZOOM);
+  const features = [];
+  await Promise.all(tiles.map(async ({ z, x, y }) => {
+    try {
+      const resp = await fetch(`${TILE_API}/state/${z}/${x}/${y}?seconds=${secs}`);
+      if (!resp.ok || resp.status === 204) return;
+      const ab = await resp.arrayBuffer();
+      if (!ab.byteLength) return;
+      // Decode MVT → GeoJSON features
+      const tile = new VectorTile.VectorTile(new Pbf(new Uint8Array(ab)));
+      for (const name of Object.keys(tile.layers)) {
+        const layer = tile.layers[name];
+        for (let i = 0; i < layer.length; i++) {
+          features.push(layer.feature(i).toGeoJSON(x, y, z));
+        }
+      }
+    } catch { /* empty or error tile — skip */ }
+  }));
+  return { type: 'FeatureCollection', features };
+}
+
+function setupMegurinLayers() {
+  makeMegurinIcon();
+  if (!map.getSource('megurin')) {
+    map.addSource('megurin', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+  }
+  if (!map.getLayer('megurin-bus')) {
     map.addLayer({
-      id: busId, type: 'symbol', source: src, 'source-layer': 'geojsonLayer',
+      id: 'megurin-bus', type: 'symbol', source: 'megurin',
       layout: {
         'icon-image': 'megurin-sq',
         'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.4, 14, 0.7, 18, 1.0],
@@ -403,9 +450,9 @@ function addMegurinSlotLayers(slot) {
       },
     });
   }
-  if (!map.getLayer(lblId)) {
+  if (!map.getLayer('megurin-label')) {
     map.addLayer({
-      id: lblId, type: 'symbol', source: src, 'source-layer': 'geojsonLayer',
+      id: 'megurin-label', type: 'symbol', source: 'megurin',
       layout: {
         'text-field': ['get', 'route_name'], 'text-size': 11,
         'text-offset': [0, 1.6], 'text-allow-overlap': true,
@@ -415,72 +462,35 @@ function addMegurinSlotLayers(slot) {
   }
 }
 
-function setSlotVisibility(slot, visible) {
-  const v = visible ? 'visible' : 'none';
-  [`megurin-${slot}-bus`, `megurin-${slot}-label`].forEach(id => {
-    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v);
-  });
-}
-
-function setupMegurinLayers() {
-  makeMegurinIcon();
-  // initialise both slots as hidden vector sources
-  for (const slot of ['a', 'b']) {
-    if (!map.getSource(`megurin-${slot}`)) {
-      map.addSource(`megurin-${slot}`, {
-        type: 'vector',
-        tiles: [`${TILE_API}/state/{z}/{x}/{y}?t=0`],
-        minzoom: 0, maxzoom: 18,
-      });
-    }
-    addMegurinSlotLayers(slot);
-    setSlotVisibility(slot, false);
-  }
-  // show the active slot immediately
-  setSlotVisibility(megurinSlot, true);
-}
-
 function removeMegurinLayers() {
-  for (const slot of ['a', 'b']) {
-    [`megurin-${slot}-label`, `megurin-${slot}-bus`].forEach(id => {
-      if (map.getLayer(id)) map.removeLayer(id);
-    });
-    if (map.getSource(`megurin-${slot}`)) map.removeSource(`megurin-${slot}`);
-  }
+  ['megurin-label', 'megurin-bus'].forEach(id => {
+    if (map.getLayer(id)) map.removeLayer(id);
+  });
+  if (map.getSource('megurin')) map.removeSource('megurin');
 }
 
-function updateMegurin() {
+async function updateMegurin() {
   if (!megurinActive) return;
   const secs = simMode === 'custom'
     ? parseInt(document.getElementById('sim-time-slider').value)
     : secsNow();
-
-  const nextSlot = megurinSlot === 'a' ? 'b' : 'a';
-  const nextSrc = `megurin-${nextSlot}`;
-  const url = `${TILE_API}/state/{z}/{x}/{y}?seconds=${secs}&t=${Date.now()}`;
-
-  // load into the hidden slot
-  map.getSource(nextSrc).setTiles([url]);
-
-  // isSourceLoaded = data fetched, but not yet painted.
-  // Wait for one render frame after load to ensure the new slot
-  // is actually composited before hiding the old one.
-  const onSourceData = (e) => {
-    if (e.sourceId !== nextSrc || !e.isSourceLoaded) return;
-    map.off('sourcedata', onSourceData);
-    map.once('render', () => {
-      setSlotVisibility(nextSlot, true);
-      setSlotVisibility(megurinSlot, false);
-      megurinSlot = nextSlot;
-    });
-  };
-  map.on('sourcedata', onSourceData);
+  try {
+    const geojson = await fetchMegurinAsGeoJSON(secs);
+    if (!megurinActive) return;
+    const src = map.getSource('megurin');
+    if (src) {
+      src.setData(geojson);
+      document.getElementById('bus-count').textContent = `${geojson.features.length} 台`;
+    }
+  } catch (e) {
+    console.warn('megurin update failed:', e);
+  }
 }
 
 function startMegurin() {
   setupMegurinLayers();
   updateMegurin();
-  megurinTimer = setInterval(updateMegurin, simMode === 'custom' ? 5000 : 1500);
+  megurinTimer = setInterval(() => updateMegurin(), simMode === 'custom' ? 5000 : 1500);
 }
 
 function stopMegurin() {
