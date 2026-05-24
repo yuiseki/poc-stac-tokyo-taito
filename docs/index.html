@@ -221,6 +221,8 @@ function addDatasetLayer(itemId) {
   if (map.getLayer(layerId)) return;
   const item = allItems[itemId];
   const color = colColor(item?.collection);
+  // insert below megurin layers so stacking order is: STAC < megurin < tile boundaries
+  const beforeId = map.getLayer('megurin-bus') ? 'megurin-bus' : undefined;
   map.addLayer({
     id: layerId,
     type: 'circle',
@@ -234,7 +236,7 @@ function addDatasetLayer(itemId) {
       'circle-stroke-width': 1,
       'circle-stroke-color': '#fff',
     },
-  });
+  }, beforeId);
   map.on('click', layerId, (e) => showPopup(e.features[0], e.lngLat));
   map.on('mouseenter', layerId, () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', layerId, () => { map.getCanvas().style.cursor = ''; });
