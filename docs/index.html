@@ -303,7 +303,7 @@ function renderSidebar() {
 
     for (const item of items) {
       const el = document.createElement('div');
-      el.className = 'dataset-item';
+      el.className = 'dataset-item' + (activeDatasets.has(item.id) ? ' active' : '');
       el.id = `ds-item-${item.id}`;
       el.innerHTML = `<span class="dataset-dot" style="background:${color}"></span>${item.properties?.title || item.id}`;
       el.onclick = () => toggleDataset(item.id, el);
@@ -336,7 +336,10 @@ async function fetchStac() {
 
     dot.className = 'online';
     txt.textContent = `オンライン — ${allCollections.length} コレクション`;
+    // activate all datasets by default
+    for (const id of Object.keys(allItems)) activeDatasets.add(id);
     renderSidebar();
+    readdActiveDatasets();
   } catch (e) {
     dot.className = 'error';
     txt.textContent = 'API オフライン';
